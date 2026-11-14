@@ -135,7 +135,6 @@ async function route() {
   ui.hub.hidden = !!d; ui.player.hidden = !d; ui.wav.hidden = !d; ui.tabs.hidden = !d; ui.download.hidden = true; ui.status.textContent = '';
   ui.ring.hidden = !(d && d.kind === 'events');
   ui.nasa.hidden = !(d && d.video);
-  ui.home.disabled = !d;
   leaveHubStyles();
   [...ui.tabs.children].forEach((t, i) => t.setAttribute('aria-current', String(datasets[i] === d)));
   document.title = d ? `${d.title} · ${project.title}` : project.title;
@@ -285,7 +284,27 @@ function setChord(on) {
   ui.ring.setAttribute('aria-pressed', String(on));
   say(on ? 'Chord on.' : 'Chord off.');
 }
-const goHome = () => { if (location.hash) location.hash = ''; };
+const goHome = () => { if (location.hash) location.hash = ''; else runIntro(false); };   // in the menu, the title plays the way in again
+
+// The way in. On arrival it waits for a tap or key; with reduced motion it shows the machine and cuts to the menu.
+let introOn = false;
+function runIntro(wait) {
+  if (introOn) return;
+  introOn = true;
+  const start = $('start'), behind = [ui.hub, ui.header];
+  ui.hub.style.opacity = '0'; ui.header.style.opacity = '0';
+  behind.forEach((e) => { e.inert = wait; });
+  start.hidden = !wait;
+  if (wait) start.focus({ preventScroll: true });
+  const begun = () => { start.hidden = true; behind.forEach((e) => { e.inert = false; }); };
+  playIntro({
+    canvas: $('cabinet'), look, title: project.title, wait, still: REDUCE,
+    planets: minis.map((m) => ({ canvas: m.canvas, rect: () => m.canvas.getBoundingClientRect() })),
+    onStart: begun,
+    onFade: (k) => { ui.hub.style.opacity = String(k); ui.header.style.opacity = String(k); },
+    onDone: () => { begun(); ui.hub.style.opacity = ''; ui.header.style.opacity = ''; introOn = false; minis[0]?.button.focus({ preventScroll: true }); },
+  });
+}
 const hop = (n) => { const i = datasets.indexOf(ds); if (i >= 0) go(datasets[(i + n + datasets.length) % datasets.length].id); };
 
 // NASA's own picture, beside ours, kept at the same moment as the sound.
@@ -371,14 +390,5 @@ window.addEventListener('hashchange', route);
 app.scope.resize();
 buildHub().then(route).then(() => {
   requestAnimationFrame(tick);
-  // The way in: only when arriving at the menu, and not for people who ask for less motion.
-  if (!ds && !REDUCE && !params.has('nointro')) {
-    ui.hub.style.opacity = '0'; ui.header.style.opacity = '0';
-    playIntro({
-      canvas: $('cabinet'), look, title: project.title,
-      planets: minis.map((m) => ({ canvas: m.canvas, rect: () => m.canvas.getBoundingClientRect() })),
-      onFade: (k) => { ui.hub.style.opacity = String(k); ui.header.style.opacity = String(k); },
-      onDone: () => { ui.hub.style.opacity = ''; ui.header.style.opacity = ''; },
-    });
-  }
+  if (!ds && !params.has('nointro')) runIntro(true);
 }).catch((e) => { ui.status.textContent = 'Could not load: ' + e.message; });

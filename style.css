@@ -41,6 +41,10 @@ header nav { display: flex; gap: 8px; }
   background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 0 4px; min-height: 36px; cursor: pointer; }
 .tab[aria-current="true"] { color: #fff; border-bottom-color: var(--accent); }
 @media (hover: hover) { .tab:hover { color: #fff; } }
+.start { position: fixed; z-index: 6; left: 50%; bottom: max(10vh, 48px); transform: translateX(-50%); background: none; border: 0; cursor: pointer;
+  font: 800 22px/1 var(--display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); padding: 14px 20px; animation: blink 1.2s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .start { animation: none; } }
 #cabinet { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 5; display: block; background: #000; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 9px 16px;

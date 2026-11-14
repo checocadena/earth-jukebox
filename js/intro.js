@@ -1,7 +1,8 @@
 // The way in. You start at a child's height in front of an arcade machine,
 // looking up at it. The camera rises to where a player stands, over the
 // controls, and then moves into the screen, where the worlds are turning.
-// Line drawing only. Any key or tap skips it.
+// Line drawing only. It waits at the child's height until the first tap or key,
+// so nobody misses it; a second tap or key skips to the menu.
 
 const V = {
   sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
@@ -15,10 +16,10 @@ const V = {
 const ease = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * t * (t * (t * 6 - 15) + 10); };
 
 // planets: [{ canvas, rect() }] the hub's own spinning globes; they are drawn on the machine's screen.
-export function playIntro({ canvas, look, title, planets, onFade, onDone }) {
+export function playIntro({ canvas, look, title, planets, onFade, onDone, onStart, wait = true, still = false }) {
   const g = canvas.getContext('2d');
   const FOV = (50 * Math.PI) / 180, RISE = [0.5, 3.1], DIVE = [3.1, 4.6], FADE = [4.25, 4.95];
-  let W = 0, H = 0, dpr = 1, F = 1, t0 = null, skipAt = null, raf = 0, done = false;
+  let W = 0, H = 0, dpr = 1, F = 1, t0 = null, shown = null, skipAt = null, raf = 0, done = false;
   let geo = null;
 
   function resize() {
@@ -96,11 +97,12 @@ export function playIntro({ canvas, look, title, planets, onFade, onDone }) {
   function frame(now) {
     if (done) return;
     raf = requestAnimationFrame(frame);
-    if (t0 === null) t0 = now;
-    let t = (now - t0) / 1000;
+    if (shown === null) { shown = now; if (!wait) t0 = now; }
+    let t = t0 === null ? 0 : (now - t0) / 1000;             // waiting: hold the first view
     if (skipAt !== null) t = Math.max(t, FADE[0] + (now - skipAt) / 1000);
     const cam = camera(t), { lines, scr, sign, controls, floor, centre, up, right, hs } = geo;
-    const fadeIn = Math.min(1, t / 0.6), out = Math.max(0, Math.min(1, (t - FADE[0]) / (FADE[1] - FADE[0])));
+    if (t0 === null && !still) cam.c[1] += Math.sin((now - shown) / 900) * 0.012;   // a child shifting on their feet
+    const fadeIn = Math.min(1, (now - shown) / 600), out = Math.max(0, Math.min(1, (t - FADE[0]) / (FADE[1] - FADE[0])));
     canvas.style.opacity = String(1 - out);
     onFade(out);
     g.globalCompositeOperation = 'source-over';
@@ -151,7 +153,12 @@ export function playIntro({ canvas, look, title, planets, onFade, onDone }) {
     window.removeEventListener('keydown', skip, true); window.removeEventListener('pointerdown', skip, true);
     onDone();
   }
-  function skip() { if (skipAt === null) skipAt = performance.now(); }
+  // First press starts the camera; a later one skips to the menu. With reduced motion there is no camera move.
+  function skip(e) {
+    const now = performance.now();
+    if (t0 === null) { t0 = now; onStart?.(); if (still) skipAt = now; e?.preventDefault?.(); return; }
+    if (skipAt === null && now - t0 > 250) skipAt = now;
+  }
 
   resize();
   canvas.hidden = false;
