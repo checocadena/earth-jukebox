@@ -32,8 +32,10 @@ header {
   padding: max(16px, env(safe-area-inset-top)) 16px 0; pointer-events: none;
 }
 header > * { pointer-events: auto; }
-h1 { display: grid; font-weight: inherit; }
-.label { font: 600 11px var(--body); text-transform: uppercase; letter-spacing: 0.12em; color: var(--dim); }
+h1 { display: grid; justify-items: start; font-weight: inherit; }
+.label { font: 600 11px var(--body); text-transform: uppercase; letter-spacing: 0.12em; color: var(--dim); background: none; border: 0; padding: 0; min-height: 24px; cursor: pointer; }
+.in-world .label::before { content: "\2190\00a0"; }
+@media (hover: hover) { .label:hover { color: var(--ink); } }
 .title { font: 900 clamp(44px, 7vw, 92px)/0.95 var(--display); letter-spacing: 0.005em; text-transform: uppercase; }
 .title.small { font-size: 44px; margin-bottom: 14px; }
 nav { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
@@ -48,7 +50,7 @@ nav { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 @media (hover: hover) { .btn:hover { background: var(--ink); color: #000; box-shadow: 0 0 24px rgb(255 255 255 / 0.25); } }
 .btn:disabled { opacity: 0.5; cursor: progress; }
 
-main {
+.player {
   position: fixed; inset: auto 0 0 0; z-index: 2; display: grid; gap: 10px; justify-items: center;
   padding: 0 16px max(18px, env(safe-area-inset-bottom));
 }
@@ -68,8 +70,23 @@ input[type="range"]::-moz-range-thumb { width: 3px; height: 22px; background: va
 
 .download { position: relative; }
 .download[hidden] { display: none; }
-.status { min-height: 0; font-size: 13px; color: var(--dim); text-align: center; }
+.status { position: fixed; inset: auto 0 4px 0; z-index: 3; font-size: 13px; color: var(--dim); text-align: center; }
 .status:empty { display: none; }
+
+[hidden] { display: none !important; }
+
+/* Hub: one small globe per world */
+.in-hub #scope { display: none; }
+.in-hub .label { font: 900 clamp(44px, 7vw, 92px)/0.95 var(--display); letter-spacing: 0.005em; color: #fff; cursor: default; }
+.hub {
+  position: fixed; inset: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: clamp(12px, 4vw, 56px);
+  align-items: center; align-content: center; justify-content: center; padding: 120px 16px 40px; overflow: auto;
+}
+.world { display: grid; justify-items: center; gap: 6px; background: none; border: 0; padding: 8px; color: #fff; cursor: pointer; }
+.world canvas { width: min(40vw, 46vh, 320px); aspect-ratio: 1; display: block; }
+.world span { font: 800 clamp(22px, 3vw, 34px)/1 var(--display); letter-spacing: 0.02em; text-transform: uppercase; }
+@media (hover: hover) { .world:hover span { color: var(--accent); } }
+@media (max-width: 520px) { .world canvas { width: min(62vw, 30vh); } .hub { padding-top: 96px; } }
 
 dialog {
   margin: auto; width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px;

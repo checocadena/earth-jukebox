@@ -51,6 +51,19 @@ export default {
   // Try them from the address bar: ?reverb=0.3&delay=0.2  (also ?click=1500 for click colour)
   effects: { reverb: 0, reverbSeconds: 3.5, delay: 0, delaySeconds: 0.36, delayFeedback: 0.35 },
 
+  // ---- Scanning worlds (maps without events, such as night lights) -------
+  // PLACEHOLDER mapping. A read head circles the planet along the line of
+  // latitude at the centre of the globe. The brightness it passes over is the
+  // waveform, and how often it goes round is the pitch.
+  scan: {
+    startHz: 55, minHz: 20, maxHz: 440,   // trips around the Earth per second
+    bandDegrees: 2,           // the line is this many degrees wide on each side
+    level: 0.2,               // loudness (RMS) of the busiest line of latitude
+    backLevel: 0.35,          // how loud the far side of the Earth is (1 = same as the near side)
+    yearsPerSecond: 0.5,      // how fast the years pass while playing
+    crossfadeSeconds: 0.06,
+  },
+
   // ---- Listening position -----------------------------------------------
   // You hear the half of the Earth that faces you. Left of the globe is the
   // left ear. `falloff` fades flashes near the edge (0 = no fade).

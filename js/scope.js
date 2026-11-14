@@ -7,7 +7,9 @@
 
 import { project } from './geo.js';
 
-export function makeScope(canvas, cfg, look) {
+export function makeScope(canvas, cfg, look, opts = {}) {
+  const { top = 96, bottom = 150, fill = 0.39 } = opts;
+  let ticks = opts.ticks !== false;   // CSS px kept clear above and below
   const g = canvas.getContext('2d');
   const base = document.createElement('canvas'), bg = base.getContext('2d');   // coast, rim, ticks
   const phos = document.createElement('canvas'), pg = phos.getContext('2d');   // blips with afterglow
@@ -24,9 +26,9 @@ export function makeScope(canvas, cfg, look) {
     for (const c of [canvas, base, phos, heat]) { c.width = w; c.height = h; }
     heatDirty = true;
     // leave room for the title above and the two control rows below
-    const top = 96 * dpr, bottom = 150 * dpr;
-    R = Math.max(40, Math.min(w * 0.39, (h - top - bottom) / 2 / 1.26));
-    cx = w / 2; cy = top + (h - top - bottom) / 2;
+    const t = top * dpr, b = bottom * dpr;
+    R = Math.max(20, Math.min(w * fill, (h - t - b) / 2 / (ticks ? 1.26 : 1.04)));
+    cx = w / 2; cy = t + (h - t - b) / 2;
     baseDirty = true;
   }
 
@@ -63,7 +65,7 @@ export function makeScope(canvas, cfg, look) {
     // rim of the Earth; heavier when the globe has keyboard focus
     beam(bg, focused ? 1 : 0.9, focused ? 3.2 : 1.3, (c) => c.arc(cx, cy, R, 0, Math.PI * 2));
     // month ticks; the four longer ones are January, April, July, October
-    beam(bg, 0.5, 1, (c) => {
+    if (ticks) beam(bg, 0.5, 1, (c) => {
       for (let m = 0; m < 12; m++) {
         const a = -Math.PI / 2 + (m / 12) * Math.PI * 2, r0 = R * 1.035, r1 = R * (m % 3 === 0 ? 1.075 : 1.055);
         c.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0); c.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
@@ -72,9 +74,10 @@ export function makeScope(canvas, cfg, look) {
   }
 
   // blips: Int32 cell ids; proj: {x,y,z} per cell
-  function frame({ blips, count, proj, seen, showMarker, trace, traceAge, running }) {
+  function frame({ blips, count, proj, seen, field, skyline, showMarker, trace, traceAge }) {
     if (baseDirty) drawBase();
     if (seen && (heatDirty || ++heatAge > 5)) drawHeat(seen, proj);
+    if (field && (heatDirty || ++heatAge > 2)) drawField(field, proj);
 
     // afterglow
     pg.globalCompositeOperation = 'destination-out';
@@ -117,6 +120,23 @@ export function makeScope(canvas, cfg, look) {
       }
     }
 
+    // the line being read, raised where the data is bright
+    if (skyline) {
+      const { lat, values, lift } = skyline;
+      const path = (raised) => (c) => {
+        let pen = false;
+        for (let i = 0; i <= 360; i++) {
+          const lon = -180 + i, v = raised ? values[i % 360] : 0;
+          const p = project(lon + 0.5, lat + v * lift, lon0, lat0);
+          if (p[2] <= 0.02) { pen = false; continue; }
+          const x = cx + p[0] * R, y = cy - p[1] * R;
+          if (pen) c.lineTo(x, y); else { c.moveTo(x, y); pen = true; }
+        }
+      };
+      beam(g, 0.35, 1, path(false));
+      beam(g, 0.95, 1.3, path(true), true);
+    }
+
     // now: a bright dot riding the rim line
     if (trace && showMarker) {
       const p = pt(trace, 0);
@@ -125,6 +145,18 @@ export function makeScope(canvas, cfg, look) {
     }
 
     g.drawImage(phos, 0, 0);
+  }
+
+  // A map of values, one dot per cell. field: Float32 0..1 per cell.
+  function drawField(field, proj) {
+    heatDirty = false; heatAge = 0;
+    hg.clearRect(0, 0, w, h);
+    const size = Math.max(1.2 * dpr, R * 0.013);
+    for (let i = 0; i < field.length; i++) {
+      const v = field[i]; if (v < 0.04 || proj.z[i] <= 0.02) continue;
+      hg.fillStyle = `rgba(${DP},${Math.min(1, v * 1.1).toFixed(2)})`;
+      hg.fillRect(cx + proj.x[i] * R - size / 2, cy - proj.y[i] * R - size / 2, size, size);
+    }
   }
 
   // Faint marks where flashes have been. seen: Float32 count per cell.
@@ -152,6 +184,9 @@ export function makeScope(canvas, cfg, look) {
     resize, frame,
     setCoast(lines) { coast = lines; baseDirty = true; },
     setFocus(on) { focused = on; baseDirty = true; },
+    touch() { heatDirty = true; },
+    setTicks(on) { if (ticks !== on) { ticks = on; baseDirty = true; } },
+    clear() { pg.clearRect(0, 0, w, h); hg.clearRect(0, 0, w, h); heatDirty = true; },
     setView(lon, lat) { lon0 = lon; lat0 = lat; baseDirty = true; heatDirty = true; pg.clearRect(0, 0, w, h); },
     get radius() { return R / dpr; },
     inside(clientX, clientY) { const r = canvas.getBoundingClientRect(); return Math.hypot((clientX - r.left) * dpr - cx, (clientY - r.top) * dpr - cy) < R * 1.05; },

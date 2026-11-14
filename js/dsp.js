@@ -205,6 +205,70 @@ export class Audifier {
   }
 }
 
+// Scanning: a map played as a waveform. A read head circles the planet along
+// one line of latitude, and the brightness it passes over, one value per
+// degree of longitude, is one period of the wave. How many times a second it
+// goes round is the pitch. The tables arrive already scaled, one per ear.
+export class Scanner {
+  constructor(sampleRate, cfg) {
+    this.sr = sampleRate; this.cfg = cfg;
+    this.freq = cfg.scan.startHz; this.phase = 0; this.playing = false;
+    this.cur = null; this.next = null; this.fade = 1; this.builtFor = 0;
+    this.hpL = { x: 0, y: 0 }; this.hpR = { x: 0, y: 0 };
+  }
+
+  // L, R: Float32Array, one value per degree of longitude. Crossfades from the old pair.
+  setTables(L, R) {
+    const raw = { L, R };
+    if (!this.cur) { this.cur = this.limit(raw); return; }
+    if (this.fade < 1 && this.next) this.cur = this.next;       // a fade was still running: take its target
+    this.next = this.limit(raw); this.fade = 0;
+  }
+
+  // Smooth the table so it holds no harmonics above half the sample rate at this pitch.
+  limit(raw) {
+    const N = raw.L.length, w = Math.max(1, Math.round((2 * N * this.freq) / this.sr));
+    this.builtFor = this.freq;
+    const out = { rawL: raw.L, rawR: raw.R, L: raw.L, R: raw.R };
+    if (w > 1) {
+      const win = new Float32Array(w); let sum = 0;
+      for (let i = 0; i < w; i++) { win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * (i + 0.5)) / w); sum += win[i]; }
+      for (const k of ['L', 'R']) {
+        const src = raw[k], dst = new Float32Array(N);
+        for (let i = 0; i < N; i++) { let v = 0; for (let j = 0; j < w; j++) v += src[(i + j - (w >> 1) + N) % N] * win[j]; dst[i] = v / sum; }
+        out[k] = dst;
+      }
+    }
+    return out;
+  }
+
+  process(left, right, n = left.length) {
+    if (!this.cur || !this.playing) { left.fill(0, 0, n); right.fill(0, 0, n); return; }
+    const c = this.cfg, sr = this.sr;
+    if (Math.abs(this.freq / this.builtFor - 1) > 0.03) {         // pitch moved: rebuild the smoothed tables
+      this.cur = this.limit({ L: this.cur.rawL, R: this.cur.rawR });
+      if (this.next) this.next = this.limit({ L: this.next.rawL, R: this.next.rawR });
+    }
+    const N = this.cur.L.length, inc = this.freq / sr, fadeStep = 1 / (c.scan.crossfadeSeconds * sr);
+    const hp = Math.exp((-2 * Math.PI * c.highpassHz) / sr);
+    for (let s = 0; s < n; s++) {
+      const x = this.phase * N, i = x | 0, f = x - i, j = (i + 1) % N;
+      let l = this.cur.L[i] + (this.cur.L[j] - this.cur.L[i]) * f;
+      let r = this.cur.R[i] + (this.cur.R[j] - this.cur.R[i]) * f;
+      if (this.next) {
+        const t = this.fade;
+        l += (this.next.L[i] + (this.next.L[j] - this.next.L[i]) * f - l) * t;
+        r += (this.next.R[i] + (this.next.R[j] - this.next.R[i]) * f - r) * t;
+        if ((this.fade += fadeStep) >= 1) { this.cur = this.next; this.next = null; this.fade = 1; }
+      }
+      const yl = l - this.hpL.x + hp * this.hpL.y; this.hpL.x = l; this.hpL.y = yl;
+      const yr = r - this.hpR.x + hp * this.hpR.y; this.hpR.x = r; this.hpR.y = yr;
+      left[s] = soft(yl * c.master); right[s] = soft(yr * c.master);
+      if ((this.phase += inc) >= 1) this.phase -= 1;
+    }
+  }
+}
+
 // ---- AudioWorklet side ----
 if (typeof AudioWorkletProcessor !== 'undefined') {
   class AudifierProcessor extends AudioWorkletProcessor {
@@ -234,4 +298,23 @@ if (typeof AudioWorkletProcessor !== 'undefined') {
     }
   }
   registerProcessor('audifier', AudifierProcessor);
+
+  class ScannerProcessor extends AudioWorkletProcessor {
+    constructor(options) {
+      super();
+      this.a = new Scanner(sampleRate, options.processorOptions.cfg);
+      this.port.onmessage = (e) => {
+        const m = e.data, a = this.a;
+        if (m.freq !== undefined) a.freq = m.freq;
+        if (m.tables) a.setTables(m.tables.L, m.tables.R);
+        if (m.playing !== undefined) a.playing = m.playing;
+      };
+    }
+    process(_, outputs) {
+      const out = outputs[0];
+      this.a.process(out[0], out[1] || out[0]);
+      return true;
+    }
+  }
+  registerProcessor('scanner', ScannerProcessor);
 }

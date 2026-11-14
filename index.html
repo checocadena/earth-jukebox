@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
 <title>Earth Jukebox</title>
-<meta name="description" content="Hear six years of lightning seen from the International Space Station. One flash is one click. Speed time up until the seasons become a tone.">
+<meta name="description" content="Hear NASA's pictures of a changing Earth. Six years of lightning, one click per flash. Twelve years of city lights, read as a waveform.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800;900&family=Schibsted+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
@@ -17,15 +17,17 @@
 <canvas id="scope" aria-hidden="true"></canvas>
 
 <header>
-  <h1><span class="label">Earth Jukebox</span><span id="title" class="title"></span></h1>
+  <h1 id="heading"><button id="home" type="button" class="label" aria-label="Earth Jukebox. Back to all worlds.">Earth Jukebox</button><span id="title" class="title"></span></h1>
   <nav>
-    <button id="ring" type="button" class="btn" aria-pressed="false">Chord</button>
-    <button id="wav" type="button" class="btn">WAV</button>
+    <button id="ring" type="button" class="btn" aria-pressed="false" hidden>Chord</button>
+    <button id="wav" type="button" class="btn" hidden>WAV</button>
     <button id="info" type="button" class="btn" aria-haspopup="dialog">Info</button>
   </nav>
 </header>
 
-<main>
+<main id="hub" class="hub" aria-label="Worlds"></main>
+
+<main id="player" class="player" hidden>
   <p id="intro" class="sr-only"></p>
   <div id="globe" class="globe" role="application" tabindex="0" aria-describedby="intro" aria-label="Globe. Arrow keys turn it."></div>
   <button id="play" type="button" class="btn play">Play</button>
@@ -36,30 +38,18 @@
       <input id="speed" type="range" min="0" max="1000" step="1" value="0" aria-label="Speed"></label>
   </div>
   <a id="download" class="btn download" hidden></a>
-  <p id="status" class="status" role="status"></p>
 </main>
+<p id="status" class="status" role="status"></p>
 
 <div id="live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
 <dialog id="about" aria-labelledby="about-h">
   <button id="close" type="button" class="btn close" aria-label="Close">Close</button>
   <h2 id="about-h" class="title small"></h2>
-  <p id="about-text"></p>
-  <p>One flash is one click. Left on the globe is your left ear. You hear the side of the Earth that faces you. Nothing is turned into notes: the only control is how fast time runs. Slow, you hear single flashes. Faster, they merge into a hiss that swells each summer. Fastest, a whole year passes in a few thousandths of a second and the seasons themselves become the pitch.</p>
-  <p>Chord: lightning makes the space between the ground and the upper atmosphere resonate at 7.8, 14, 20, 27 and 33 hertz. With Chord on, every flash strikes those five pitches, moved up five octaves so you can hear them. The pitches are the planet's. How long they ring is our choice: the real resonance dies away faster.</p>
-  <p>The line around the rim is the calendar: January at the top, going clockwise. Its height is how much lightning the visible side had, and the bright dot is now. At top speed that line is the waveform you hear. Flashes leave a faint mark that fades, so you can watch lightning move north and south with the seasons.</p>
-  <dl class="keys">
-    <dt>Space</dt><dd>Play or pause</dd>
-    <dt>← →</dt><dd>Turn the globe</dd>
-    <dt>Shift ↑ ↓</dt><dd>Tilt the globe</dd>
-    <dt>↑ ↓</dt><dd>Faster or slower</dd>
-    <dt>, .</dt><dd>Back or forward one month</dd>
-    <dt>C</dt><dd>Chord on or off</dd>
-    <dt>D</dt><dd>Say what is playing</dd>
-    <dt>W</dt><dd>Make a WAV file</dd>
-  </dl>
+  <div id="about-body"></div>
+  <dl id="keys" class="keys"></dl>
   <p id="credit" class="fine"></p>
-  <p class="fine">Source: <a id="source" href="#"></a>. Dates are read back from the animation and are good to about two weeks. Made for the NASA Space Apps Challenge 2026. NASA does not endorse this project.</p>
+  <p class="fine">Made for the NASA Space Apps Challenge 2026. NASA does not endorse this project.</p>
 </dialog>
 </body>
 </html>
