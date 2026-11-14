@@ -16,6 +16,7 @@ const ui = {
 
 let vis, dateAt, analyze, track = null;
 let liveFrame = null;          // features of the frame on screen now
+let liveTime = -1;             // video time when liveFrame was read
 let ctx = null, engine = null, volumeNode = null;
 let timer = null, nextTime = 0, stepIndex = 0, lastMonth = null;
 let autoDescribe = true, lastDescribedDay = null, lastPct = null, lastView = null;
@@ -84,7 +85,9 @@ function ensureAudio() {
 }
 
 function currentFrame() {
-  if (liveFrame) return liveFrame;
+  // Use the live reading if it is fresh; otherwise the precomputed track
+  // (for example when the browser stops painting a hidden video).
+  if (liveFrame && Math.abs(video.currentTime - liveTime) < 0.5) return liveFrame;
   return track ? track.at(video.currentTime) : null;
 }
 
@@ -106,7 +109,7 @@ function tick() {
 function watchFrames() {
   const onFrame = () => {
     if (video.paused) return;
-    try { liveFrame = analyze(video); } catch { liveFrame = null; }
+    try { liveFrame = analyze(video); liveTime = video.currentTime; } catch { liveFrame = null; }
     drawOverlay();
     updateReadouts();
     autoAnnounce();
@@ -202,7 +205,7 @@ function seekTo(t) {
 }
 
 video.addEventListener('seeked', () => {
-  if (video.paused) { try { liveFrame = analyze(video); } catch {} }
+  if (video.paused) { try { liveFrame = analyze(video); liveTime = video.currentTime; } catch {} }
   updateReadouts();
   lastMonth = null;
   describeNow(false);

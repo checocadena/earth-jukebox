@@ -52,7 +52,7 @@ button, select, .download {
 button:hover, select:hover { border-color: var(--accent); }
 button.primary { background: #0f5f8f; border-color: var(--accent); font-weight: 600; min-width: 7rem; }
 button[aria-pressed="true"] { background: #1f4d2e; border-color: #7fe0a0; }
-button[aria-pressed="true"]::after { content: " ✓"; }
+button[aria-pressed="true"]::after { content: " ✓" / ""; }
 button:disabled { opacity: .6; cursor: progress; }
 .download { display: inline-flex; align-items: center; text-decoration: none; background: #1f4d2e; border-color: #7fe0a0; }
 .download[hidden] { display: none; }
