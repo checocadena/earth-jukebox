@@ -8,6 +8,9 @@
   --line: #2c3a48;
   color-scheme: dark;
 }
+/* The page is dark by design in both system themes: the NASA imagery sits on black. */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0a0e13; --text: #eef3f7; } }
+:root[data-theme="dark"] { --bg: #0a0e13; --text: #eef3f7; }
 * { box-sizing: border-box; }
 html { font-size: 100%; }
 body {
