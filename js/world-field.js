@@ -1,8 +1,9 @@
-// A world made of maps: one value per place, per year (night lights).
-// Sound: a read head circles the planet along the line of latitude at the
-// centre of the globe. The brightness it passes over is one period of the
-// wave. How often it goes round is the pitch. As the years pass the map
-// changes, and so does the wave.
+// A world made of maps: one value per place, per step in time (night lights
+// by year, ocean temperature by month).
+// Sound: each chosen line of latitude is a voice. A read head runs along it,
+// and what it passes on the side of the Earth facing you is that voice's
+// waveform. Shorter circles sound higher (pitch = equator pitch / cos latitude).
+// As the Earth turns and the years pass, the voices swell, fade and change.
 
 import { Scanner } from './dsp.js';
 import { CELLS, COLS, ROWS, placeName } from './geo.js';
@@ -12,69 +13,104 @@ export async function createFieldWorld(ds, app) {
   const bin = await fetch(ds.maps).then((r) => r.arrayBuffer());
   const hl = new DataView(bin).getUint32(0, true);
   const head = JSON.parse(new TextDecoder().decode(new Uint8Array(bin, 4, hl)));
-  const years = head.years, Y = years.length;
-  const packed = new Uint8Array(bin, 4 + hl);              // sqrt-encoded, Y maps of CELLS
-  const light = (y, i) => { const u = packed[y * CELLS + i] / 255; return u * u; };
+  const labels = head.labels || head.years.map(String), S = labels.length;
+  const packed = new Uint8Array(bin, 4 + hl);              // S maps of CELLS, one byte per cell
+  const sqrt = head.encoding === 'sqrt', gaps = head.nodata === 0;   // gaps: 0 means "no data here" (land, for the ocean)
+  const rate = ds.stepsPerSecond || cfg.stepsPerSecond;
 
-  let pos = 0;                                             // position in years, 0 = first map
-  let freq = cfg.startHz, playing = false, node = null, lastPost = 0;
-  const field = new Float32Array(CELLS);                   // what is drawn: brightness now
-  const wave = new Float32Array(COLS);                     // brightness along the line, now
-  const first = new Float32Array(COLS);                    // the same line in the first year
-  const tL = new Float32Array(COLS), tR = new Float32Array(COLS);
-  let waveSum = 0, firstSum = 0;
-
-  const band = (lat) => {
-    const c = Math.round(89.5 - lat), rows = [];
-    for (let r = c - cfg.bandDegrees; r <= c + cfg.bandDegrees; r++) if (r >= 0 && r < ROWS) rows.push(r);
-    return rows;
+  // value 0..1 at step position t (between maps y0 and y1); -1 where there is no data
+  const value = (y0, y1, t, i) => {
+    const a = packed[y0 * CELLS + i], b = packed[y1 * CELLS + i];
+    if (gaps && (a === 0 || b === 0)) return -1;
+    const u = (a + (b - a) * t) / 255;
+    return sqrt ? u * u : u;
   };
-  function line(y0, y1, t, rows, out) {
-    let sum = 0;
+
+  const lines = cfg.linesDegrees.map((lat) => {
+    const c = Math.round(89.5 - lat), rows = [];
+    for (let r = Math.round(c - cfg.bandDegrees); r <= Math.round(c + cfg.bandDegrees); r++) if (r >= 0 && r < ROWS) rows.push(r);
+    return {
+      lat, row: Math.max(0, Math.min(ROWS - 1, c)), rows, ratio: 1 / Math.cos((lat * Math.PI) / 180),
+      wave: new Float32Array(COLS), sky: new Float32Array(COLS), L: new Float32Array(COLS), R: new Float32Array(COLS), level: 0, facing: 0, facingFirst: 0,
+    };
+  });
+
+  // values along one line at one moment; places with no data take the line's average
+  function readLine(ln, y0, y1, t, out) {
+    let sum = 0, n = 0;
     for (let col = 0; col < COLS; col++) {
-      let v = 0;
-      for (const r of rows) { const i = r * COLS + col; v += light(y0, i) * (1 - t) + light(y1, i) * t; }
-      out[col] = v / rows.length; sum += out[col];
+      let v = 0, k = 0;
+      for (const r of ln.rows) { const x = value(y0, y1, t, r * COLS + col); if (x >= 0) { v += x; k++; } }
+      out[col] = k ? v / k : -1;
+      if (k) { sum += out[col]; n++; }
     }
-    return sum;
+    const mean = n ? sum / n : 0;
+    for (let col = 0; col < COLS; col++) if (out[col] < 0) out[col] = mean;
+    return mean;
   }
-  // Loudness reference: the busiest line of latitude in the last year plays at cfg.level (RMS).
-  let peak = 1e-6, loud = 1e-6;
-  {
-    const tmp = new Float32Array(COLS);
-    for (let lat = -55; lat <= 67; lat += 1) {
-      const s = line(Y - 1, Y - 1, 0, band(lat), tmp), mean = s / COLS;
+
+  // Loudness and drawing references, from the last step.
+  let loud = 1e-6, top = 1e-6;
+  for (const ln of lines) {
+    const mean = readLine(ln, S - 1, S - 1, 0, ln.wave);
+    let ss = 0;
+    for (let c = 0; c < COLS; c++) { ss += (ln.wave[c] - mean) ** 2; top = Math.max(top, ln.wave[c]); }
+    loud = Math.max(loud, Math.sqrt(ss / COLS));
+  }
+  const gain = cfg.level / loud / Math.sqrt(lines.length / 3);
+
+  let pos = 0, freq = cfg.startHz, playing = false, node = null, lastPost = 0, fieldAt = -1;
+  const field = new Float32Array(CELLS);                   // what is drawn
+  const tmp = new Float32Array(COLS);
+
+  // Build every voice's table for a view (proj) and a moment (p).
+  function tables(proj, p, target) {
+    const y0 = Math.min(S - 1, Math.floor(p)), y1 = Math.min(S - 1, y0 + 1), t = p - y0;
+    for (const ln of lines) {
+      readLine(ln, y0, y1, t, ln.wave);
+      const first = target ? null : (readLine(ln, 0, 0, 0, tmp), tmp);
+      // heard where it is: near side loud, far side faint, left to right across the ears
+      let mL = 0, mR = 0, facing = 0, facingFirst = 0;
+      for (let col = 0; col < COLS; col++) {
+        const i = ln.row * COLS + col, z = proj.z[i];
+        const near = z > 0 ? Math.pow(z, settings.view.falloff || 1) : 0;
+        const w = cfg.backLevel + (1 - cfg.backLevel) * near, a = ((proj.x[i] + 1) * Math.PI) / 4;
+        ln.L[col] = ln.wave[col] * w * Math.cos(a); ln.R[col] = ln.wave[col] * w * Math.sin(a);
+        mL += ln.L[col]; mR += ln.R[col];
+        facing += ln.wave[col] * near; if (first) facingFirst += first[col] * near;
+      }
+      mL /= COLS; mR /= COLS;
       let ss = 0;
-      for (let c = 0; c < COLS; c++) { peak = Math.max(peak, tmp[c]); ss += (tmp[c] - mean) ** 2; }
-      loud = Math.max(loud, Math.sqrt(ss / COLS));
+      for (let col = 0; col < COLS; col++) {
+        ln.L[col] = (ln.L[col] - mL) * gain; ln.R[col] = (ln.R[col] - mR) * gain;
+        ss += ln.L[col] ** 2 + ln.R[col] ** 2;
+      }
+      ln.level = Math.sqrt(ss / COLS) / cfg.level;
+      ln.facing = facing; if (first) ln.facingFirst = facingFirst;
     }
+    return lines.map((ln) => ({ ratio: ln.ratio, L: ln.L.slice(), R: ln.R.slice() }));
   }
 
   function update(force) {
-    const y0 = Math.min(Y - 1, Math.floor(pos)), y1 = Math.min(Y - 1, y0 + 1), t = pos - y0;
-    for (let i = 0; i < CELLS; i++) {
-      const a = packed[y0 * CELLS + i], b = packed[y1 * CELLS + i];
-      field[i] = (a + (b - a) * t) / 255;                  // sqrt scale reads better on screen
+    const p = Math.min(S - 1, pos);
+    if (force || Math.abs(p - fieldAt) > 0.02) {
+      fieldAt = p;
+      const y0 = Math.min(S - 1, Math.floor(p)), y1 = Math.min(S - 1, y0 + 1), t = p - y0;
+      for (let i = 0; i < CELLS; i++) {
+        const a = packed[y0 * CELLS + i], b = packed[y1 * CELLS + i];
+        field[i] = gaps && (a === 0 || b === 0) ? 0 : (a + (b - a) * t) / 255;
+      }
     }
     app.scope.touch();
-    const rows = band(app.view.lat);
-    waveSum = line(y0, y1, t, rows, wave);
-    firstSum = line(0, 0, 0, rows, first);
-    // one table per ear: the head is heard where it is, left to right, and quieter round the back
-    const mean = waveSum / COLS, k = cfg.level / loud;
-    for (let col = 0; col < COLS; col++) {
-      const d = ((col - 179.5 - app.view.lon) * Math.PI) / 180, front = Math.cos(d);
-      const w = cfg.backLevel + (1 - cfg.backLevel) * Math.min(1, Math.max(0, (front + 0.2) / 0.4));
-      const a = ((Math.sin(d) + 1) * Math.PI) / 4, v = (wave[col] - mean) * k * w;
-      tL[col] = v * Math.cos(a); tR[col] = v * Math.sin(a);
-    }
+    const list = tables(app.proj, p);
+    for (const ln of lines) for (let c = 0; c < COLS; c++) ln.sky[c] = Math.min(1.4, sqrt ? Math.sqrt(ln.wave[c] / top) : ln.wave[c] / top);
     const now = performance.now();
-    if (node && (force || now - lastPost > 33)) { lastPost = now; node.port.postMessage({ tables: { L: tL.slice(), R: tR.slice() } }); }
+    if (node && (force || now - lastPost > cfg.crossfadeSeconds * 1000)) { lastPost = now; node.port.postMessage({ tables: list }); }
   }
 
-  const year = () => years[Math.min(Y - 1, Math.round(pos))];
-  const hzText = (long) => (long ? `${Math.round(freq)} trips around the Earth per second` : `${Math.round(freq)} Hz`);
-  const sky = new Float32Array(COLS);
+  const label = () => labels[Math.min(S - 1, Math.round(pos))];
+  const hzText = (long) => (long ? `Equator line at ${Math.round(freq)} hertz` : `${Math.round(freq)} Hz`);
+  const latText = (lat) => (Math.abs(lat) < 1 ? 'the equator' : `${Math.round(Math.abs(lat))} degrees ${lat > 0 ? 'north' : 'south'}`);
 
   const world = {
     kind: 'field', hasChord: false,
@@ -84,7 +120,7 @@ export async function createFieldWorld(ds, app) {
     start(ctx) {
       if (node) return node;
       node = new AudioWorkletNode(ctx, 'scanner', { numberOfInputs: 0, outputChannelCount: [2], processorOptions: { cfg: settings } });
-      node.port.postMessage({ freq, tables: { L: tL.slice(), R: tR.slice() } });
+      node.port.postMessage({ freq, tables: tables(app.proj, Math.min(S - 1, pos)) });
       return node;
     },
     setPlaying(on) { playing = on; node?.port.postMessage({ playing: on }); },
@@ -97,52 +133,57 @@ export async function createFieldWorld(ds, app) {
     setSpeed(f) { freq = Math.max(cfg.minHz, Math.min(cfg.maxHz, f)); node?.port.postMessage({ freq }); },
     nudgeSpeed(steps) { world.setSpeed(freq * Math.pow(2, steps / 12)); },   // one step is a semitone
 
-    get timeSlider() { return pos / (Y - 1); },
-    set timeSlider(v) { pos = Math.max(0, Math.min(Y - 1, v * (Y - 1))); update(true); },
-    stepTime(dir) { pos = Math.max(0, Math.min(Y - 1, Math.round(pos) + dir)); update(true); },
-    timeText: () => String(year()),
-    timeAria: () => String(year()),
+    get timeSlider() { return Math.min(S - 1, pos) / (S - 1); },
+    set timeSlider(v) { pos = Math.max(0, Math.min(S - 1, v * (S - 1))); update(true); },
+    stepTime(dir) { pos = Math.max(0, Math.min(S - 1, Math.round(Math.min(S - 1, pos)) + dir)); update(true); },
+    timeText: label,
+    timeAria: label,
 
     frame(dt) {
       if (playing) {
-        pos += dt * cfg.yearsPerSecond;
-        if (pos >= Y - 1 + 1.5) pos = 0;                   // hold on the last year for a moment, then start again
-        const held = pos; pos = Math.min(Y - 1, pos); update(false); pos = held;
+        pos += dt * rate;
+        if (pos >= S - 1 + rate * 4) pos = 0;              // hold on the last step for a few seconds, then start again
+        update(false);
       }
-      // the line, raised where it is bright (square root, so small towns show)
-      const top = Math.sqrt(peak) || 1;
-      for (let c = 0; c < COLS; c++) sky[c] = Math.min(1.4, Math.sqrt(wave[c]) / top);
-      app.scope.frame({ blips: null, count: 0, proj: app.proj, field, skyline: { lat: app.view.lat, values: sky, lift: 16 } });
+      app.scope.frame({
+        blips: null, count: 0, proj: app.proj, field,
+        skylines: lines.map((ln) => ({ lat: ln.lat, values: ln.sky, lift: ds.lift || 5, level: ln.level })),
+      });
     },
 
     describe() {
-      const lat = Math.round(Math.abs(app.view.lat)), ns = app.view.lat >= 0 ? 'north' : 'south';
-      const change = firstSum > 1e-6 ? Math.round((waveSum / firstSum - 1) * 100) : 0;
-      const versus = Math.round(pos) === 0 ? '' : change >= 1 ? ` This line is ${change} percent brighter than in ${years[0]}.`
-        : change <= -1 ? ` This line is ${-change} percent dimmer than in ${years[0]}.` : ` This line is as bright as in ${years[0]}.`;
-      const dark = waveSum / COLS < peak * 0.01 ? ' Almost no lights on this line.' : '';
-      return `${year()}. Reading the lights along ${lat} degrees ${ns}, facing ${placeName(app.view.lon, app.view.lat)}.${versus}${dark} ${hzText(true)}.`;
+      const best = lines.reduce((a, b) => (b.level > a.level ? b : a));
+      let now = 0, first = 0;
+      for (const ln of lines) { now += ln.facing; first += ln.facingFirst; }
+      const change = first > 1e-6 ? Math.round((now / first - 1) * 100) : 0;
+      const versus = !ds.compare || Math.round(pos) === 0 ? '' : change >= 1 ? ` ${ds.compare} on this side: ${change} percent more than in ${labels[0]}.`
+        : change <= -1 ? ` ${ds.compare} on this side: ${-change} percent less than in ${labels[0]}.` : ` ${ds.compare} on this side: the same as in ${labels[0]}.`;
+      const quiet = best.level < 0.05 ? ` ${ds.quiet || 'Very little here.'}` : ` The loudest line is ${latText(best.lat)}.`;
+      return `${label()}. Facing ${placeName(app.view.lon, app.view.lat)}.${quiet}${versus} ${hzText(true)}.`;
     },
 
     async renderWav(progress) {
       const sr = settings.render.sampleRate, a = new Scanner(sr, settings);
       a.freq = freq; a.playing = true;
-      const secs = (Y - 1) / cfg.yearsPerSecond + 2, total = Math.ceil(secs * sr);
-      const L = new Float32Array(total), R = new Float32Array(total), keep = pos, step = Math.round(sr / 30);
+      const turn = settings.spin.secondsPerTurn;
+      const secs = Math.min(settings.render.maxSeconds, Math.max(turn, (S - 1) / rate + 2)), total = Math.ceil(secs * sr);
+      const L = new Float32Array(total), R = new Float32Array(total), step = Math.round(sr / 10);
+      const proj = { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS) };
       for (let i = 0; i < total; i += step) {
-        pos = Math.min(Y - 1, (i / sr) * cfg.yearsPerSecond); update(false);
-        a.setTables(tL.slice(), tR.slice());
+        const t = i / sr;
+        app.projFor(app.view.lon + (t * 360) / turn, proj);
+        a.setTables(tables(proj, Math.min(S - 1, t * rate), true));
         const n = Math.min(step, total - i);
         a.process(L.subarray(i, i + n), R.subarray(i, i + n), n);
         if (i % (sr * 2) < step) await progress((i + n) / total);
       }
-      pos = keep; update(true);
+      update(true);
       return { L, R, sr, secs, tag: `${Math.round(freq)}-hz` };
     },
 
     preview(scope, proj) {
       const f = new Float32Array(CELLS);
-      for (let i = 0; i < CELLS; i++) f[i] = packed[(Y - 1) * CELLS + i] / 255;
+      for (let i = 0; i < CELLS; i++) f[i] = packed[(S - 1) * CELLS + i] / 255;
       scope.frame({ blips: null, count: 0, proj, field: f });
     },
   };

@@ -51,18 +51,30 @@ export default {
   // Try them from the address bar: ?reverb=0.3&delay=0.2  (also ?click=1500 for click colour)
   effects: { reverb: 0, reverbSeconds: 3.5, delay: 0, delaySeconds: 0.36, delayFeedback: 0.35 },
 
-  // ---- Scanning worlds (maps without events, such as night lights) -------
-  // PLACEHOLDER mapping. A read head circles the planet along the line of
-  // latitude at the centre of the globe. The brightness it passes over is the
-  // waveform, and how often it goes round is the pitch.
+  // ---- Map worlds (maps without events, such as night lights) -----------
+  // PLACEHOLDER mapping. Each line of latitude is a voice. A read head runs
+  // along every line at the same ground speed, and what it passes over on the
+  // side of the Earth facing you is that voice's waveform. Lines nearer the
+  // poles are shorter circles, so the head gets round them sooner and they
+  // sound higher: pitch = equator pitch / cos(latitude). That makes 36.87
+  // degrees a major third above the equator, 48.19 a fifth and 60 an octave.
+  // Nobody chose those intervals; they are the shape of the planet. Which
+  // lines sound is the choice: these give a five-note scale with no clashes.
   scan: {
-    startHz: 55, minHz: 20, maxHz: 440,   // trips around the Earth per second
-    bandDegrees: 2,           // the line is this many degrees wide on each side
-    level: 0.2,               // loudness (RMS) of the busiest line of latitude
-    backLevel: 0.35,          // how loud the far side of the Earth is (1 = same as the near side)
-    yearsPerSecond: 0.5,      // how fast the years pass while playing
-    crossfadeSeconds: 0.06,
+    startHz: 110, minHz: 40, maxHz: 440,                     // pitch of the equator line
+    linesDegrees: [60, 53.13, 48.19, 36.87, 27.27, 0, -27.27, -36.87],
+    bandDegrees: 1.5,         // each line is this many degrees wide on each side
+    level: 0.3,               // loudness (RMS) of the busiest line with its busiest side facing you
+    backLevel: 0.1,           // how loud the far side of the Earth is (0 = silent, 1 = same as the near side)
+    harmonics: 24,            // tone colour: how much fine detail of the map is kept in the wave
+    stepsPerSecond: 0.25,     // how fast the years (or months) pass while playing
+    crossfadeSeconds: 0.2,
   },
+
+  // ---- The Earth turns ---------------------------------------------------
+  // PLACEHOLDER. While playing, the globe turns by itself and you hear what
+  // comes round. Dragging or the arrow keys still turn it by hand.
+  spin: { secondsPerTurn: 48, holdAfterTouchSeconds: 2.5 },
 
   // ---- Listening position -----------------------------------------------
   // You hear the half of the Earth that faces you. Left of the globe is the
@@ -81,7 +93,8 @@ export default {
   },
   scope: {
     persistence: 0.1,          // how fast a flash fades (higher = shorter afterglow)
-    markHalfLifeSeconds: 6,    // how long the faint mark a flash leaves takes to halve
+    markHalfLifeDays: 12,      // a flash leaves a mark that halves after this many days of data
+    markHalfLifePausedSeconds: 1.2,   // and after this long when paused
     maxBlipsPerFrame: 900,
     coastAlpha: 0.6,
   },

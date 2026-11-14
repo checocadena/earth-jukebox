@@ -29,6 +29,21 @@ export function projectCells(lon0, lat0, out) {
   return out;
 }
 
+// The same, for a view that differs from `base` only by a turn of `cols` whole
+// degrees about the Earth's axis: every row is the base row shifted sideways.
+export function shiftCells(base, cols, out) {
+  const k = ((Math.round(cols) % COLS) + COLS) % COLS;
+  for (const a of ['x', 'y', 'z']) {
+    const src = base[a], dst = out[a];
+    for (let row = 0; row < ROWS; row++) {
+      const o = row * COLS;
+      dst.set(src.subarray(o, o + COLS - k), o + k);
+      dst.set(src.subarray(o + COLS - k, o + COLS), o);
+    }
+  }
+  return out;
+}
+
 // Gain per cell per ear: the far side is silent, the edge fades by `falloff`,
 // and left to right on the globe is left to right in the ears (equal power).
 export function cellGains(proj, falloff, gL, gR) {

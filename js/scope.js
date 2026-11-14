@@ -17,7 +17,7 @@ export function makeScope(canvas, cfg, look, opts = {}) {
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const P = look.line, G = look.lineGlow, DP = look.data, DG = look.dataGlow;
   let w = 0, h = 0, dpr = 1, cx = 0, cy = 0, R = 0;
-  let coast = [], lon0 = 0, lat0 = 0, baseDirty = true, focused = false, heatDirty = true, heatAge = 0;
+  let coast = [], lon0 = 0, lat0 = 0, baseDirty = true, focused = false, heatDirty = true, heatAge = 0, glowLon = 0, glowLat = 0;
 
   function resize() {
     const r = canvas.getBoundingClientRect();
@@ -74,7 +74,7 @@ export function makeScope(canvas, cfg, look, opts = {}) {
   }
 
   // blips: Int32 cell ids; proj: {x,y,z} per cell
-  function frame({ blips, count, proj, seen, field, skyline, showMarker, trace, traceAge }) {
+  function frame({ blips, count, proj, seen, field, skylines, showMarker, trace, traceAge }) {
     if (baseDirty) drawBase();
     if (seen && (heatDirty || ++heatAge > 5)) drawHeat(seen, proj);
     if (field && (heatDirty || ++heatAge > 2)) drawField(field, proj);
@@ -120,21 +120,22 @@ export function makeScope(canvas, cfg, look, opts = {}) {
       }
     }
 
-    // the line being read, raised where the data is bright
-    if (skyline) {
-      const { lat, values, lift } = skyline;
-      const path = (raised) => (c) => {
-        let pen = false;
-        for (let i = 0; i <= 360; i++) {
-          const lon = -180 + i, v = raised ? values[i % 360] : 0;
-          const p = project(lon + 0.5, lat + v * lift, lon0, lat0);
-          if (p[2] <= 0.02) { pen = false; continue; }
-          const x = cx + p[0] * R, y = cy - p[1] * R;
-          if (pen) c.lineTo(x, y); else { c.moveTo(x, y); pen = true; }
-        }
-      };
-      beam(g, 0.35, 1, path(false));
-      beam(g, 0.95, 1.3, path(true), true);
+    // the lines being read, each raised where its data is bright
+    if (skylines) {
+      for (const { lat, values, lift, level } of skylines) {
+        const path = (raised) => (c) => {
+          let pen = false;
+          for (let i = 0; i <= 360; i++) {
+            const lon = -180 + i, v = raised ? values[i % 360] : 0;
+            const p = project(lon + 0.5, lat + v * lift, lon0, lat0);
+            if (p[2] <= 0.02) { pen = false; continue; }
+            const x = cx + p[0] * R, y = cy - p[1] * R;
+            if (pen) c.lineTo(x, y); else { c.moveTo(x, y); pen = true; }
+          }
+        };
+        beam(g, 0.22, 1, path(false));
+        beam(g, 0.35 + 0.65 * Math.min(1, level), 1.2, path(true), true);   // brighter when it is sounding
+      }
     }
 
     // now: a bright dot riding the rim line
@@ -187,7 +188,13 @@ export function makeScope(canvas, cfg, look, opts = {}) {
     touch() { heatDirty = true; },
     setTicks(on) { if (ticks !== on) { ticks = on; baseDirty = true; } },
     clear() { pg.clearRect(0, 0, w, h); hg.clearRect(0, 0, w, h); heatDirty = true; },
-    setView(lon, lat) { lon0 = lon; lat0 = lat; baseDirty = true; heatDirty = true; pg.clearRect(0, 0, w, h); },
+    // A slow turn keeps the afterglow; a jump clears it (it would be in the wrong place).
+    setView(lon, lat) {
+      const jump = Math.abs(((lon - glowLon + 540) % 360) - 180) > 4 || Math.abs(lat - glowLat) > 4;
+      lon0 = lon; lat0 = lat; baseDirty = true; heatDirty = true;
+      if (jump) { pg.clearRect(0, 0, w, h); glowLon = lon; glowLat = lat; }
+      else { glowLon += (((lon - glowLon + 540) % 360) - 180) * 0.2; glowLat += (lat - glowLat) * 0.2; }
+    },
     get radius() { return R / dpr; },
     inside(clientX, clientY) { const r = canvas.getBoundingClientRect(); return Math.hypot((clientX - r.left) * dpr - cx, (clientY - r.top) * dpr - cy) < R * 1.05; },
   };

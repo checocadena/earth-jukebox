@@ -205,36 +205,47 @@ export class Audifier {
   }
 }
 
-// Scanning: a map played as a waveform. A read head circles the planet along
-// one line of latitude, and the brightness it passes over, one value per
-// degree of longitude, is one period of the wave. How many times a second it
-// goes round is the pitch. The tables arrive already scaled, one per ear.
+// Scanning: a map played as waveforms. Each line of latitude is a voice. A
+// read head runs along it, and the values it passes, one per degree of
+// longitude, are one period of that voice's wave. All heads move at the same
+// ground speed, so shorter circles (nearer the poles) come round sooner and
+// sound higher: `ratio` is 1 / cos(latitude). The tables arrive already
+// weighted for the side of the Earth facing the listener, one per ear.
 export class Scanner {
   constructor(sampleRate, cfg) {
     this.sr = sampleRate; this.cfg = cfg;
-    this.freq = cfg.scan.startHz; this.phase = 0; this.playing = false;
-    this.cur = null; this.next = null; this.fade = 1; this.builtFor = 0;
+    this.freq = cfg.scan.startHz; this.playing = false; this.builtFor = this.freq;
+    this.voices = [];
     this.hpL = { x: 0, y: 0 }; this.hpR = { x: 0, y: 0 };
   }
 
-  // L, R: Float32Array, one value per degree of longitude. Crossfades from the old pair.
-  setTables(L, R) {
-    const raw = { L, R };
-    if (!this.cur) { this.cur = this.limit(raw); return; }
-    if (this.fade < 1 && this.next) this.cur = this.next;       // a fade was still running: take its target
-    this.next = this.limit(raw); this.fade = 0;
+  // list: [{ ratio, L, R }], L and R Float32Array. Crossfades each voice from its old pair.
+  setTables(list) {
+    list.forEach((t, i) => {
+      const v = this.voices[i] || (this.voices[i] = { phase: (i * 0.381966) % 1, cur: null, next: null, fade: 1 });
+      v.ratio = t.ratio;
+      if (!v.cur) { v.cur = this.limit(t, v.ratio); return; }
+      if (v.fade < 1 && v.next) {                              // a fade was still running: start from where it had got to
+        const f = v.fade, mix = (a, b) => a.map((x, k) => x + (b[k] - x) * f);
+        v.cur = { L: mix(v.cur.L, v.next.L), R: mix(v.cur.R, v.next.R), rawL: mix(v.cur.rawL, v.next.rawL), rawR: mix(v.cur.rawR, v.next.rawR) };
+      }
+      v.next = this.limit(t, v.ratio); v.fade = 0;
+    });
+    this.voices.length = list.length;
   }
 
-  // Smooth the table so it holds no harmonics above half the sample rate at this pitch.
-  limit(raw) {
-    const N = raw.L.length, w = Math.max(1, Math.round((2 * N * this.freq) / this.sr));
-    this.builtFor = this.freq;
-    const out = { rawL: raw.L, rawR: raw.R, L: raw.L, R: raw.R };
+  // Smooth a table so it holds no harmonics above half the sample rate at
+  // this pitch, and no more than cfg.scan.harmonics of them.
+  limit(raw, ratio) {
+    const N = raw.L.length;
+    const w = Math.max(1, Math.round((2 * N * this.freq * ratio) / this.sr), Math.round(N / (2 * this.cfg.scan.harmonics)));
+    const out = { rawL: raw.rawL || raw.L, rawR: raw.rawR || raw.R };
+    out.L = out.rawL; out.R = out.rawR;
     if (w > 1) {
       const win = new Float32Array(w); let sum = 0;
       for (let i = 0; i < w; i++) { win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * (i + 0.5)) / w); sum += win[i]; }
       for (const k of ['L', 'R']) {
-        const src = raw[k], dst = new Float32Array(N);
+        const src = k === 'L' ? out.rawL : out.rawR, dst = new Float32Array(N);
         for (let i = 0; i < N; i++) { let v = 0; for (let j = 0; j < w; j++) v += src[(i + j - (w >> 1) + N) % N] * win[j]; dst[i] = v / sum; }
         out[k] = dst;
       }
@@ -243,28 +254,36 @@ export class Scanner {
   }
 
   process(left, right, n = left.length) {
-    if (!this.cur || !this.playing) { left.fill(0, 0, n); right.fill(0, 0, n); return; }
+    if (!this.voices.length || !this.playing) { left.fill(0, 0, n); right.fill(0, 0, n); return; }
     const c = this.cfg, sr = this.sr;
     if (Math.abs(this.freq / this.builtFor - 1) > 0.03) {         // pitch moved: rebuild the smoothed tables
-      this.cur = this.limit({ L: this.cur.rawL, R: this.cur.rawR });
-      if (this.next) this.next = this.limit({ L: this.next.rawL, R: this.next.rawR });
+      this.builtFor = this.freq;
+      for (const v of this.voices) { v.cur = this.limit(v.cur, v.ratio); if (v.next) v.next = this.limit(v.next, v.ratio); }
     }
-    const N = this.cur.L.length, inc = this.freq / sr, fadeStep = 1 / (c.scan.crossfadeSeconds * sr);
-    const hp = Math.exp((-2 * Math.PI * c.highpassHz) / sr);
-    for (let s = 0; s < n; s++) {
-      const x = this.phase * N, i = x | 0, f = x - i, j = (i + 1) % N;
-      let l = this.cur.L[i] + (this.cur.L[j] - this.cur.L[i]) * f;
-      let r = this.cur.R[i] + (this.cur.R[j] - this.cur.R[i]) * f;
-      if (this.next) {
-        const t = this.fade;
-        l += (this.next.L[i] + (this.next.L[j] - this.next.L[i]) * f - l) * t;
-        r += (this.next.R[i] + (this.next.R[j] - this.next.R[i]) * f - r) * t;
-        if ((this.fade += fadeStep) >= 1) { this.cur = this.next; this.next = null; this.fade = 1; }
+    const fadeStep = 1 / (c.scan.crossfadeSeconds * sr), hp = Math.exp((-2 * Math.PI * c.highpassHz) / sr);
+    left.fill(0, 0, n); right.fill(0, 0, n);
+    for (const v of this.voices) {
+      const N = v.cur.L.length, inc = (this.freq * v.ratio) / sr;
+      let ph = v.phase;
+      for (let s = 0; s < n; s++) {
+        const x = ph * N, i = x | 0, f = x - i, j = i + 1 === N ? 0 : i + 1;
+        let l = v.cur.L[i] + (v.cur.L[j] - v.cur.L[i]) * f, r = v.cur.R[i] + (v.cur.R[j] - v.cur.R[i]) * f;
+        if (v.next) {
+          const t = v.fade;
+          l += (v.next.L[i] + (v.next.L[j] - v.next.L[i]) * f - l) * t;
+          r += (v.next.R[i] + (v.next.R[j] - v.next.R[i]) * f - r) * t;
+          if ((v.fade += fadeStep) >= 1) { v.cur = v.next; v.next = null; v.fade = 1; }
+        }
+        left[s] += l; right[s] += r;
+        if ((ph += inc) >= 1) ph -= 1;
       }
+      v.phase = ph;
+    }
+    for (let s = 0; s < n; s++) {
+      const l = left[s], r = right[s];
       const yl = l - this.hpL.x + hp * this.hpL.y; this.hpL.x = l; this.hpL.y = yl;
       const yr = r - this.hpR.x + hp * this.hpR.y; this.hpR.x = r; this.hpR.y = yr;
       left[s] = soft(yl * c.master); right[s] = soft(yr * c.master);
-      if ((this.phase += inc) >= 1) this.phase -= 1;
     }
   }
 }
@@ -306,7 +325,7 @@ if (typeof AudioWorkletProcessor !== 'undefined') {
       this.port.onmessage = (e) => {
         const m = e.data, a = this.a;
         if (m.freq !== undefined) a.freq = m.freq;
-        if (m.tables) a.setTables(m.tables.L, m.tables.R);
+        if (m.tables) a.setTables(m.tables);
         if (m.playing !== undefined) a.playing = m.playing;
       };
     }

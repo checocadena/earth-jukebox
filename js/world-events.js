@@ -4,6 +4,8 @@
 import { Audifier } from './dsp.js';
 import { CELLS, cellGains, frameCurves, gainReference, projectCells, placeName } from './geo.js';
 
+const REDUCE = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 export async function createEventsWorld(ds, app) {
@@ -111,12 +113,13 @@ export async function createEventsWorld(ds, app) {
     timeText() { const t = dateOf(day); return fastAll() ? 'All years' : `${MONTHS[t.getUTCMonth()].slice(0, 3)} ${t.getUTCFullYear()}`; },
     timeAria() { const t = dateOf(day); return `${MONTHS[t.getUTCMonth()]} ${t.getUTCFullYear()}`; },
 
-    frame() {
-      let count = 0;
+    frame(dt) {
+      let count = 0, days = 0;
       if (playing) {
         // flashes between the last picture and this one
         let d0 = lastDrawDay; const d1 = day;
         if (d1 < d0 || d1 - d0 > 400) d0 = Math.max(0, d1 - Math.min(400, speed / 30));   // looped or jumped
+        days = d1 - d0;
         const idx = (d) => { const f = frameOf(d); return frameStart[f] + Math.floor((frameStart[f + 1] - frameStart[f]) * Math.min(1, (d - frameDay[f]) / (frameDay[f + 1] - frameDay[f]))); };
         const i0 = idx(d0), n = Math.max(0, idx(d1) - i0), cap = blips.length;
         if (n <= cap) { for (let i = 0; i < n; i++) blips[i] = cells[i0 + i]; count = n; }
@@ -124,7 +127,11 @@ export async function createEventsWorld(ds, app) {
         for (let i = 0; i < count; i++) seen[blips[i]]++;
         lastDrawDay = d1;
       }
-      const fade = Math.pow(0.5, 1 / (60 * settings.scope.markHalfLifeSeconds));   // marks fade, playing or paused
+      // A mark fades with the data: it halves every markHalfLifeDays days of data
+      // (never faster than a quarter of a second, so fast playback still shows).
+      // Paused, it fades by the clock.
+      const sc = settings.scope;
+      const fade = playing ? Math.max(Math.pow(0.5, days / sc.markHalfLifeDays), Math.pow(0.5, dt / 0.25)) : Math.pow(0.5, dt / sc.markHalfLifePausedSeconds);
       for (let i = 0; i < CELLS; i++) seen[i] *= fade;
       // rim line: the past year up to now, or the average year when time runs very fast
       let line = meanYear, aged = false;
@@ -154,16 +161,25 @@ export async function createEventsWorld(ds, app) {
 
     async renderWav(progress) {
       const sr = settings.render.sampleRate, a = new Audifier(sr, settings);
+      const wL = new Float32Array(CELLS), wR = new Float32Array(CELLS), cL = new Float32Array(frames), cR = new Float32Array(frames);
+      const proj = { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS) };
       a.setData({ frameStart, frameDay, cells, ref }); a.setView({ gL, gR, curveL, curveR });
       a.speed = speed; a.playing = true;
       const pass = endDay / speed;                        // seconds for one pass through the data
       const secs = pass < 5 ? settings.render.toneSeconds : Math.min(pass, settings.render.maxSeconds);
       a.seek(pass <= settings.render.maxSeconds ? 0 : day);
       const total = Math.ceil(secs * sr), L = new Float32Array(total), R = new Float32Array(total);
-      for (let i = 0; i < total; i += sr) {
-        const n = Math.min(sr, total - i);
+      const turn = REDUCE ? 0 : settings.spin.secondsPerTurn, chunk = Math.round(sr / 2);
+      for (let i = 0; i < total; i += chunk) {
+        if (turn) {                                       // the Earth turns in the file as it does on the page
+          app.projFor(app.view.lon + ((i / sr) * 360) / turn, proj);
+          cellGains(proj, settings.view.falloff, wL, wR);
+          frameCurves(frameStart, cells, wL, wR, cL, cR);
+          a.setView({ gL: wL, gR: wR, curveL: cL, curveR: cR });
+        }
+        const n = Math.min(chunk, total - i);
         a.process(L.subarray(i, i + n), R.subarray(i, i + n), n);
-        await progress((i + n) / total);
+        if (i % (sr * 2) < chunk) await progress((i + n) / total);
       }
       return { L, R, sr, secs, tag: speedText().replace(/[ /.]+/g, '-') };
     },

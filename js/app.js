@@ -1,7 +1,7 @@
 import config from '../config.js';
 import datasets, { project } from '../datasets.js';
 import { makeScope } from './scope.js';
-import { CELLS, projectCells, placeName } from './geo.js';
+import { CELLS, projectCells, shiftCells, placeName } from './geo.js';
 import { createEventsWorld } from './world-events.js';
 import { createFieldWorld } from './world-field.js';
 import { toWav } from './wav.js';
@@ -40,8 +40,14 @@ const app = {
   scope: makeScope($('scope'), settings.scope, look),
   view: { lon: settings.view.lon, lat: settings.view.lat },
   proj: { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS) },
+  // positions of every cell for a view at the current tilt, turned to `lon` (whole degrees)
+  projFor(lon, out) { return shiftCells(base, lon, out); },
   ended() { setPlaying(false); say('End.'); },
 };
+// Cell positions for the current tilt with longitude 0 facing; turning the globe only shifts them sideways.
+const base = { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS), lat: null };
+const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let spinHold = 0, shownLon = null;
 const worlds = new Map();          // id -> promise of a loaded world
 let ds = null, world = null, playing = false, coast = null;
 let ctx = null, out = null, wavUrl = null, lastSaid = 0, lastFrame = 0;
@@ -109,11 +115,17 @@ async function route() {
 function setView(lon, lat, now) {
   app.view.lon = ((lon + 540) % 360) - 180;
   app.view.lat = Math.max(-70, Math.min(70, lat));
-  projectCells(app.view.lon, app.view.lat, app.proj);
-  app.scope.setView(app.view.lon, app.view.lat);
+  app.scope.setView(app.view.lon, app.view.lat);          // the coastline turns smoothly
+  const whole = Math.round(app.view.lon);
+  if (base.lat !== app.view.lat) { projectCells(0, app.view.lat, base); base.lat = app.view.lat; shownLon = null; }
+  if (whole === shownLon && !now) return;                  // the sound and the dots move in whole degrees
+  shownLon = whole;
+  shiftCells(base, whole, app.proj);
   world?.viewChanged(now);
 }
+const touched = () => { spinHold = performance.now() + settings.spin.holdAfterTouchSeconds * 1000; };
 const turn = (dLon, dLat) => {
+  touched();
   setView(app.view.lon + dLon, app.view.lat + dLat);
   say(world.kind === 'field' && dLat ? world.describe() : `Facing ${placeName(app.view.lon, app.view.lat)}.`);
 };
@@ -171,6 +183,8 @@ function tick(now) {
   requestAnimationFrame(tick);
   const dt = Math.min(0.1, (now - lastFrame) / 1000 || 0); lastFrame = now;
   if (!world) return;
+  // the Earth turns by itself while playing, unless a hand is on it
+  if (playing && !REDUCE && !drag && now > spinHold) setView(app.view.lon + (dt * 360) / settings.spin.secondsPerTurn, app.view.lat);
   world.frame(dt);
   readouts(false);
   if (playing && now - lastSaid > settings.describeEverySeconds * 1000) say(world.describe());
@@ -248,7 +262,7 @@ ui.globe.addEventListener('pointermove', (e) => {
   if (!drag || !world) return;
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y, k = 57.3 / app.scope.radius;
   drag.moved += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY;
-  if (drag.moved > 6) setView(app.view.lon - dx * k, app.view.lat + dy * k);
+  if (drag.moved > 6) { touched(); setView(app.view.lon - dx * k, app.view.lat + dy * k); }
 });
 ui.globe.addEventListener('pointerup', (e) => {
   if (drag && drag.moved <= 6 && app.scope.inside(e.clientX, e.clientY)) setPlaying(!playing);
