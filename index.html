@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Earth Jukebox</title>
+<meta name="description" content="Hear NASA animations of a changing planet. Arctic sea ice from March to September 2026, turned into music you can play by keyboard or screen reader.">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%230b3d66'/%3E%3Cpath d='M6 12q10-8 20 0' stroke='%23e8f6ff' stroke-width='4' fill='none'/%3E%3C/svg%3E">
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<a class="skip" href="#controls">Skip to player controls</a>
+<header>
+  <h1>Earth Jukebox</h1>
+  <p class="lede">Listen to NASA animations of a changing planet. The page reads each frame of the picture, region by region, and plays what it sees as notes in a musical scale.</p>
+</header>
+
+<main>
+  <section aria-labelledby="vis-title">
+    <div class="pick">
+      <label for="vis-select">Animation</label>
+      <select id="vis-select"></select>
+    </div>
+    <h2 id="vis-title"></h2>
+    <p id="vis-summary"></p>
+
+    <figure id="stage">
+      <div class="frame">
+        <video id="video" muted playsinline preload="auto" crossorigin="anonymous" aria-hidden="true"></video>
+        <canvas id="overlay" aria-hidden="true"></canvas>
+      </div>
+      <figcaption>
+        <span id="date-readout" class="readout">Date</span>
+        <span id="ice-readout" class="readout">Sea ice</span>
+      </figcaption>
+    </figure>
+    <p id="soundonly-note" class="soundonly-note" hidden>Sound only mode. The picture is hidden; the sound and descriptions continue.</p>
+  </section>
+
+  <section id="controls" aria-labelledby="controls-title" tabindex="-1">
+    <h2 id="controls-title">Player</h2>
+    <div class="row">
+      <button id="play" type="button" class="primary">Play</button>
+      <button id="back" type="button" aria-label="Back 5 seconds">−5 s</button>
+      <button id="fwd" type="button" aria-label="Forward 5 seconds">+5 s</button>
+      <button id="describe" type="button">Describe now</button>
+    </div>
+    <div class="row">
+      <label class="slider" for="seek">Position
+        <input id="seek" type="range" min="0" max="1000" step="1" value="0">
+      </label>
+    </div>
+    <div class="row">
+      <label class="slider" for="volume">Volume
+        <input id="volume" type="range" min="0" max="100" step="5" value="80">
+      </label>
+      <label for="speed">Speed
+        <select id="speed">
+          <option value="0.25">Quarter</option>
+          <option value="0.5">Half</option>
+          <option value="0.75">Three quarters</option>
+          <option value="1" selected>Normal</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <button id="soundonly" type="button" aria-pressed="false">Sound only</button>
+      <button id="autodesc" type="button" aria-pressed="true">Spoken updates</button>
+    </div>
+    <div class="row">
+      <button id="render" type="button">Make WAV file</button>
+      <a id="download" class="download" hidden>Download WAV</a>
+    </div>
+    <p id="render-status" role="status" class="status"></p>
+  </section>
+
+  <div id="live" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+  <div id="alert" class="visually-hidden" aria-live="assertive" aria-atomic="true"></div>
+
+  <section aria-labelledby="how-title">
+    <h2 id="how-title">How it sounds</h2>
+    <p id="mapping-note" class="placeholder"></p>
+    <p>The picture is cut into a grid. The player reads it one column at a time, left to right, and each column is one beat. A region with sea ice in it plays a note. Notes on the left come from the left speaker, notes on the right from the right. A low chord underneath gets quieter as the ice shrinks. A small bell rings at the start of each month.</p>
+    <p id="mapping-detail"></p>
+  </section>
+
+  <section aria-labelledby="keys-title">
+    <h2 id="keys-title">Keyboard</h2>
+    <dl class="keys">
+      <dt><kbd>Space</kbd> or <kbd>K</kbd></dt><dd>Play or pause</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Back or forward 5 seconds</dd>
+      <dt><kbd>Home</kbd> <kbd>End</kbd></dt><dd>Start or end</dd>
+      <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Volume</dd>
+      <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Slower or faster</dd>
+      <dt><kbd>D</kbd></dt><dd>Describe what is on screen now</dd>
+      <dt><kbd>A</kbd></dt><dd>Spoken updates on or off</dd>
+      <dt><kbd>S</kbd></dt><dd>Sound only mode</dd>
+      <dt><kbd>W</kbd></dt><dd>Make a WAV file</dd>
+    </dl>
+    <p>Letter keys work when focus is not in a slider or menu. Every action also has a button.</p>
+  </section>
+
+  <section aria-labelledby="credit-title">
+    <h2 id="credit-title">Data and credit</h2>
+    <p id="credit"></p>
+    <p>Source: <a id="source-link" href="#"></a></p>
+    <p>Built for the NASA Space Apps Challenge 2026, challenge "The Earth Information Jukebox". Code: <a href="https://github.com/checocadena/earth-jukebox">github.com/checocadena/earth-jukebox</a>. NASA does not endorse this project.</p>
+  </section>
+</main>
+</body>
+</html>
