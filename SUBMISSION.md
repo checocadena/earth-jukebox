@@ -22,7 +22,7 @@ Earth Jukebox
 
 ## High-level summary
 
-Earth Jukebox lets you hear NASA's picture of lightning on Earth. It takes the Earth Information Center animation of every flash the Lightning Imaging Sensor on the International Space Station saw from 2017 to 2023, reads the flashes back out of its frames, and plays each one as a single click. Nothing is turned into notes. The only control over the sound is how fast time runs. Slowed down, you hear single flashes, left and right as they sit on the globe. Faster, they merge into a hiss that swells every summer. At the top speed a year lasts two thousandths of a second, and the yearly rise and fall of lightning becomes the waveform of a tone. Turn the globe and the tone changes, because each side of the Earth has its own seasons. The picture is a radar scope with the coastlines in outline. It is built for blind and low-vision listeners first: it runs by keyboard, speaks the date, the place and the amount of lightning, and saves what you hear as a WAV file.
+Earth Jukebox plays NASA's pictures of the Earth as sound. You walk up to an arcade machine, pick one of three turning worlds, and listen. Each world is read out of the frames of one NASA Earth Information Center animation, and in each one the data is the sound itself. In Lightning, every flash the Space Station saw from 2017 to 2023 is one click, and time can be sped up until a year lasts two thousandths of a second and the seasons become a tone. In Night lights and Ocean, lines of latitude are voices: a read head runs along each line and the city lights or water temperatures it passes are the waveform. Lines nearer the poles are shorter circles, so they sound higher, and the intervals between them come from the shape of the planet. The Earth turns while it plays, so you hear what faces you. It is built for blind and low-vision listeners first: it runs by keyboard, speaks the date, the place and what is happening, shows NASA's own frame beside the sound, and saves what you hear as a WAV file.
 
 ## Links
 
@@ -32,20 +32,28 @@ Earth Jukebox lets you hear NASA's picture of lightning on Earth. It takes the E
 
 ## How it works
 
-Reading the frames. NASA's animation (SVS 5011, flat map version) shows each flash as a yellow dot on a grey map. A script (`tools/extract_lightning.py`) goes through all 6,002 frames, finds the dots that are lit in one frame and were not lit in the frame before, and records each as an event with a frame and a one-degree map cell. That gives 2.7 million events. The animation does not run at a steady speed, so the script also works out the date of every frame from the animation itself. Each dot stays lit for a fixed window of data, so how many frames a dot lasts tells how fast time is moving at that point. The length of the window comes from the seasons, which have to repeat every 365.25 days. The dates agree with themselves to a few days from year to year and may be off by a few weeks overall.
+Reading the frames. Three scripts in `tools/` turn NASA's animations into data.
+- Lightning (SVS 5011): each flash is a yellow dot. A dot lit in one frame and not in the frame before is a new event, stored with its frame and a one-degree map cell. That gives 2.7 million events. The animation eases in and out, so the script also works out the date of every frame from the animation itself: a dot stays lit for a fixed window of data, so how many frames it lasts tells how fast time is moving, and the length of the window comes from the seasons repeating every 365.25 days.
+- Night lights (SVS 5313): one frame from the middle of each year, 2012 to 2023. The script keeps the small bright points that stand out from the land around them and sums them into one-degree cells. Snow and rock that only look like lights are removed with a colour test.
+- Ocean (SVS 3912): 96 moments through one model year. The colour of each current line is turned back into a temperature with NASA's colour bar and averaged per cell.
+These are read from the pictures, not from the instrument or model files, so they show where and how much, not exact measurements.
 
-Making the sound. This is audification: the data is played back faster than it happened, and one event is one click. The Web Audio code runs in an AudioWorklet. At low speeds it places each click at its own moment. At high speeds, where thousands of flashes fall inside one audio sample, it reads the count per frame as a curve, which is the same signal with less work. You hear the half of the Earth that faces you. Left on the globe is the left ear, and flashes near the edge are quieter. There are no scales, no instruments and no effects by default. Every setting is in one file, `config.js`.
+Making the sound. Everything runs in the browser with the Web Audio API, in an AudioWorklet. There are no samples, scales or instruments.
+- Events (Lightning): audification. One flash is one click, placed at its own moment and played back faster than it happened. At high speeds, where thousands of flashes fall inside one audio sample, the engine reads the count per frame as a curve, which is the same signal. An optional setting passes the clicks through five resonators at the Schumann resonance frequencies (7.83 to 33.8 Hz, the frequencies at which lightning makes the atmosphere ring), moved up five octaves.
+- Maps (Night lights, Ocean): each chosen line of latitude is a wavetable voice. The table is the data along that line, one value per degree of longitude, weighted by the side of the Earth facing the listener. All read heads move at the same ground speed, so a line's pitch is the equator pitch divided by the cosine of its latitude: 36.87 degrees is a major third up, 48.19 a fifth, 60 an octave.
+- In every world the globe turns while it plays, left on the globe is the left ear, and the far side is quiet. Every setting is in one file, `config.js`.
 
-The picture. A radar scope drawn on a canvas: the rim of the Earth, coastlines in outline, and a blip for each flash that fades like phosphor. The hand is the calendar. One turn is one year. The line it leaves around the rim is how much lightning the visible side had through the year, which is also the shape of the wave you hear at top speed.
+The picture. White outline on black: an arcade cabinet for the way in, then an outline globe. Data is yellow, as in NASA's lightning frames. In Lightning each flash leaves a mark that fades with the data. In the map worlds each sounding line is drawn on the globe and rises where its data is, so the waveform is visible on the Earth. A button shows NASA's own animation beside the globe, kept at the same moment.
 
-Accessibility. Everything works from the keyboard and every key has a visible control. A live region tells screen readers the month and year, which part of the world is facing the listener, and whether lightning there is below, near or above its usual level. At the highest speeds it says how long a year lasts and what pitch that makes. Focus is always visible. The WAV file is made with the same code as the live sound.
+Accessibility. Everything works from the keyboard and every key has a visible control. A live region tells screen readers the date, which part of the world is facing the listener and what is happening there, and repeats as things change. Focus is always visible. People who ask their device for less motion get no intro and no turning. The WAV file is made with the same code as the live sound.
 
 ## NASA data used
 
-- Lightning Events Detected from the International Space Station (ISS) 2017-2023, NASA Scientific Visualization Studio, https://svs.gsfc.nasa.gov/5011/. It is in the Earth Information Center content database and is listed in the challenge resources.
-  - Visualizers: Michala Garrison (SSAI), Greg Shirah (NASA/GSFC), Kel Elkins (USRA), Alex Kekesi (Global Science and Technology, Inc.).
-  - Data shown in it: Quality Controlled Lightning Imaging Sensor (LIS) on International Space Station (ISS) Science Data V1, NASA GHRC.
-- The project uses the frames of the flat map version of the animation as its data. It does not use the LIS data files directly.
+All three are in the Earth Information Center resources listed for this challenge.
+- Lightning Events Detected from the International Space Station (ISS) 2017-2023, NASA SVS, https://svs.gsfc.nasa.gov/5011/. Visualizers: Michala Garrison (SSAI), Greg Shirah (NASA/GSFC), Kel Elkins (USRA), Alex Kekesi (GST). Data shown: Lightning Imaging Sensor on the ISS, quality controlled science data, NASA GHRC.
+- Change in Night Lights between 2012 and 2023, EIC Version, NASA SVS, https://svs.gsfc.nasa.gov/5313/. Visualizer: Kel Elkins (USRA). Scientists: Zhuosen Wang (University of Maryland), Miguel Román (Leidos), Ranjay Shrestha (SSAI), Srija Chakraborty (USRA), Virginia Kalb (NASA). Data shown: NASA Black Marble, Suomi NPP VIIRS.
+- Global Sea Surface Currents and Temperature, NASA SVS, https://svs.gsfc.nasa.gov/3912/. Animators: Greg Shirah (NASA/GSFC), Horace Mitchell (NASA/GSFC), Eric Sokolowsky (GST). Producer: Michael Starobin (HTSI). Scientists: Hong Zhang (UCLA), Dimitris Menemenlis (NASA/JPL Caltech). Data shown: ECCO2 ocean and sea ice model (MIT/JPL).
+- The project uses the frames of these animations as its data, and shows small copies of them (resized, no other changes) beside the globe.
 
 ## Other data
 
@@ -53,27 +61,26 @@ Accessibility. Everything works from the keyboard and every key has a visible co
 
 ## Use of AI
 
-I used Claude Code (Anthropic), an AI coding assistant, to write most of the code: the script that reads the flashes out of NASA's frames, the audio engine, the scope drawing, the keyboard controls, the screen reader descriptions and the WAV export. I also used it to draft this project text, which I then edited. The concept is mine: play the data itself, sped up, with no musical mapping, on a radar scope, following earlier work of my own. I chose the NASA visualization and made the sound decisions. The sound is produced by the code in real time from the NASA frames. No AI-generated audio, images, video or voice are used in the project or the demo.
+I used Claude Code (Anthropic), an AI coding assistant, to write most of the code: the scripts that read data out of NASA's frames, the audio engine, the drawing, the keyboard controls, the screen reader descriptions and the WAV export. I also used it to draft this project text, which I then edited. The direction is mine: play the data itself with no musical mapping, following earlier work of my own; the outline look; the arcade machine and the worlds inside it; the Earth turning as the thing that moves the sound. I chose the NASA visualizations and made the sound decisions by ear. The sound is produced by the code in real time from data read out of NASA's frames. No AI-generated audio, images, video or voice are used in the project or the demo.
 
 (Checo: edit this to match what you actually did and decided.)
 
 ## References
 
-- NASA Scientific Visualization Studio, Lightning Events Detected from the ISS 2017-2023: https://svs.gsfc.nasa.gov/5011/
+- NASA SVS 5011, 5313 and 3912 (links above)
 - NASA Earth Information Center content database: https://svs.gsfc.nasa.gov/gallery/earth-information-center/
 - Natural Earth: https://www.naturalearthdata.com/
 - Web Audio API, MDN: https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API
 
 ## Demo video plan (30 seconds)
 
-Record with your phone's screen recorder, sound on. Open the live link first so the data is loaded.
+Record with your phone's screen recorder, sound on. Reload the page so the intro plays.
 
 | Time | Screen | Voice or caption |
 |---|---|---|
-| 0 to 4 s | Scope at rest | "I'm Checo, solo team. This is Earth Jukebox." |
-| 4 to 10 s | Tap Play at 23 days per second | "Six years of lightning seen from the Space Station. One flash, one click." |
-| 10 to 16 s | Drag speed down to about 0.5 days per second | No voice. Single clicks, left and right. |
-| 16 to 25 s | Drag speed slowly all the way up | "Speed time up and the seasons become a tone." |
-| 25 to 30 s | At top speed, drag the globe from Africa to South America | "Turn the Earth and the tone changes." |
-
-If there is room, end on the Info panel or a screen reader reading the description.
+| 0 to 5 s | The arcade machine, camera rising into the screen | "I'm Checo, solo team. This is Earth Jukebox: NASA's pictures of the Earth, played as sound." |
+| 5 to 8 s | Tap the Lightning planet, it zooms in. Tap Play. | "Six years of lightning. One flash, one click." |
+| 8 to 14 s | Drag the speed slider slowly to the top | "Speed time up and the seasons become a tone." |
+| 14 to 22 s | Tap Night lights in the tabs. Let it turn. | "City lights. Every line of latitude is a voice." |
+| 22 to 27 s | Tap NASA to show the source frame | "Read straight from NASA's frames." |
+| 27 to 30 s | Tap Ocean | "Built for blind and low-vision listeners first." |
