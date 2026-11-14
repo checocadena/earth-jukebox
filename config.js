@@ -1,85 +1,61 @@
-// Earth Jukebox: every sound mapping choice lives in this file.
+// Earth Jukebox: every sound and picture setting lives in this file.
 //
-// Values marked PLACEHOLDER are working defaults so the page makes sound.
-// They are NOT Checo's musical choices yet. Change them here (or ask Claude
-// to) and reload the page; nothing else in the code needs to change.
+// The sound is an audification. One data event (one lightning flash) is one
+// click, and time is played back faster than it happened. Nothing is mapped to
+// notes or scales. Values marked PLACEHOLDER are working defaults that Checo
+// has not chosen yet.
 
 export default {
-  // ---- Pitch space -------------------------------------------------------
-  // PLACEHOLDER: scale and root not chosen yet.
-  scale: 'dorian',          // any key of `scales` below
-  root: 'D',                // C, C#, D, D#, E, F, F#, G, G#, A, A#, B
-  lowestOctave: 3,          // D3 is the lowest note
-  octaveSpan: 3,            // notes spread over this many octaves
-
-  scales: {
-    major:            [0, 2, 4, 5, 7, 9, 11],
-    minor:            [0, 2, 3, 5, 7, 8, 10],
-    dorian:           [0, 2, 3, 5, 7, 9, 10],
-    lydian:           [0, 2, 4, 6, 7, 9, 11],
-    majorPentatonic:  [0, 2, 4, 7, 9],
-    minorPentatonic:  [0, 3, 5, 7, 10],
-    wholeTone:        [0, 2, 4, 6, 8, 10],
+  // ---- Time --------------------------------------------------------------
+  // Speed is days of data per second of sound.
+  speed: {
+    start: 23,          // PLACEHOLDER. 23 days/s plays 2017 to 2023 in about 100 s, like the NASA animation.
+    min: 0.05,          // about one click a second: single flashes
+    max: 200000,        // a year lasts 1.8 ms: the seasons become a 548 Hz tone
+  },
+  loop: {
+    enabled: true,
+    // Above this speed the loop covers whole years only, so the loop point
+    // does not add a buzz of its own to the tone.
+    wholeYearsAboveSpeed: 365,
   },
 
-  // ---- Time --------------------------------------------------------------
-  // PLACEHOLDER tempo. One "step" reads one column of the image.
-  bpm: 96,
-  stepsPerBeat: 2,          // 2 = eighth notes
+  // ---- Sound -------------------------------------------------------------
+  // PLACEHOLDER levels (0 to 1, where 1 is full scale).
+  //   click  peak of one flash heard alone
+  //   hiss   loudness (RMS) once flashes are too dense to tell apart
+  //   tone   loudness (RMS) of the seasonal waveform at the highest speeds
+  // hissInTone keeps a little of the hiss under the tone, as the data has it.
+  level: { click: 0.6, hiss: 0.07, tone: 0.16, hissInTone: true },
+  // PLACEHOLDER click colour. A flash is a single-sample click through a
+  // low-pass filter. 20000 = raw click, thin and bright. 1500 = a soft thud.
+  click: { lowpassHz: 5000 },
+  highpassHz: 20,       // removes the inaudible slow offset
+  master: 0.9,
+  // Above this many events per sample the engine reads the per-frame rate
+  // curve and stops adding single clicks (same signal, far less work).
+  curveAboveEventsPerSample: 6,
 
-  // ---- How the image is read --------------------------------------------
-  // The frame is cut into a grid. Each step plays one column, left to right,
-  // so a full sweep of the picture takes `columns` steps.
-  grid: { columns: 8, rows: 5 },
+  // PLACEHOLDER: no effects. Checo is undecided. 0 = off, 1 = fully wet.
+  // Try them from the address bar: ?reverb=0.3&delay=0.2
+  effects: { reverb: 0, reverbSeconds: 3.5, delay: 0, delaySeconds: 0.36, delayFeedback: 0.35 },
 
-  // Features available for each region:
-  //   ice        share of the region covered by sea ice (bluish white)
-  //   snow       share covered by other white (snow on land, ice sheet, cloud)
-  //   ocean      share that is open water (dark blue)
-  //   brightness average brightness, 0 dark to 1 white
-  //   saturation average colour strength, 0 grey to 1 vivid
-  //   hue        average hue, 0 to 1 around the colour wheel
-  //   row        vertical position, 1 = top (north in most views), 0 = bottom
-  //   column     horizontal position, 0 = left, 1 = right
+  // ---- Listening position -----------------------------------------------
+  // You hear the half of the Earth that faces you. Left of the globe is the
+  // left ear. `falloff` fades flashes near the edge (0 = no fade).
+  view: { lon: 10, lat: 10, falloff: 1, stepDegrees: 15 },
 
-  // PLACEHOLDER: which feature sets the note inside the scale (0 low, 1 high).
-  // Any mapping can take `range: [lo, hi]` to stretch a narrow feature to 0..1.
-  pitch: { source: 'row' },
-
-  // A region plays a note on its step when this feature passes the threshold.
-  trigger: { source: 'ice', threshold: 0.15 },
-
-  // How many regions in the column may sound at once. The density feature
-  // (averaged over the column) scales between 1 and maxNotes.
-  density: { source: 'ice', maxNotes: 4 },
-
-  // Loudness of each note.
-  velocity: { source: 'ice', min: 0.2, max: 0.9 },
-
-  // Timbre: this feature opens the filter and blends in a brighter wave.
-  timbre: { source: 'brightness', cutoffMin: 500, cutoffMax: 6000 },
-
-  // Stereo position follows the column being read.
-  pan: { width: 0.8 },
-
-  // Note shape (seconds).
-  note: { attack: 0.01, decay: 0.6, lengthInSteps: 1.5, waveSoft: 'triangle', waveBright: 'sawtooth' },
-
-  // ---- Drone -------------------------------------------------------------
-  // A held chord on the root and fifth. Its level follows the total of
-  // `source` in the whole frame, so it thins out as the ice melts.
-  drone: { enabled: true, source: 'ice', range: [0, 0.4], gainMax: 0.18, cutoffMin: 200, cutoffMax: 1400, smoothing: 0.8 },
-
-  // ---- Calendar ----------------------------------------------------------
-  // A soft high bell on the first day of each month, so you always know
-  // where you are in the season without looking.
-  monthBell: { enabled: true, gain: 0.25, octaveAboveRoot: 3 },
-
-  // ---- Output ------------------------------------------------------------
-  master: 0.7,
-  render: { sampleRate: 44100 },
+  // ---- Picture -----------------------------------------------------------
+  scope: {
+    phosphor: '225,255,236',   // line colour, same as checocadena.com
+    glow: '80,255,150',
+    persistence: 0.1,          // how fast a flash fades (higher = shorter afterglow)
+    maxBlipsPerFrame: 900,
+    coastAlpha: 0.6,
+  },
 
   // ---- Spoken descriptions ----------------------------------------------
-  // Screen readers get an update about every this many days of animation.
-  describeEveryDays: 21,
+  describeEverySeconds: 12,
+
+  render: { sampleRate: 48000, maxSeconds: 120, toneSeconds: 20 },
 };

@@ -1,324 +1,329 @@
 import config from '../config.js';
-import visualizations from '../visualizations.js';
-import { makeAnalyzer, makeTrack, scanVideo } from './analyze.js';
-import { makeEngine, renderOffline, stepSeconds } from './engine.js';
-import { makeDater, fmtDate, viewAt, describe } from './describe.js';
+import datasets from '../datasets.js';
+import { Audifier } from './dsp.js';
+import { makeScope } from './scope.js';
+import { CELLS, projectCells, cellGains, frameCurves, placeName, gainReference } from './geo.js';
 import { toWav } from './wav.js';
 
 const $ = (id) => document.getElementById(id);
-const video = $('video'), overlay = $('overlay');
 const ui = {
-  play: $('play'), back: $('back'), fwd: $('fwd'), describe: $('describe'), seek: $('seek'),
-  volume: $('volume'), speed: $('speed'), soundonly: $('soundonly'), autodesc: $('autodesc'),
-  render: $('render'), download: $('download'), renderStatus: $('render-status'),
-  live: $('live'), alert: $('alert'), date: $('date-readout'), ice: $('ice-readout'),
+  play: $('play'), wav: $('wav'), info: $('info'), about: $('about'), close: $('close'), globe: $('globe'),
+  time: $('time'), speed: $('speed'), date: $('date'), speedv: $('speedv'),
+  live: $('live'), status: $('status'), download: $('download'),
 };
+const params = new URLSearchParams(location.search);
+const fx = { ...config.effects };
+for (const k of ['reverb', 'delay']) if (params.has(k)) fx[k] = Math.max(0, Math.min(1, Number(params.get(k)) || 0));
 
-let vis, dateAt, analyze, track = null;
-let liveFrame = null;          // features of the frame on screen now
-let liveTime = -1;             // video time when liveFrame was read
-let ctx = null, engine = null, volumeNode = null;
-let timer = null, nextTime = 0, stepIndex = 0, lastMonth = null;
-let autoDescribe = true, lastDescribedDay = null, lastPct = null, lastView = null;
-let wavUrl = null;
+const scope = makeScope($('scope'), config.scope);
+let ds, data = null;                       // dataset entry, { frameStart, frameDay, cells, frames, endDay }
+let view = { lon: config.view.lon, lat: config.view.lat };
+const proj = { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS) };
+const gL = new Float32Array(CELLS), gR = new Float32Array(CELLS);
+let curveL, curveR, curveRef = 1, meanYear = null;
+let speed = config.speed.start, day = 0, playing = false;
+let ctx = null, node = null;
+let lastDrawDay = 0, curvesTimer = 0, wavUrl = null, lastSaid = 0;
+const blips = new Int32Array(config.scope.maxBlipsPerFrame);
 
-// ---------- announcements ----------
-function say(text, urgent = false) {
-  const el = urgent ? ui.alert : ui.live;
-  el.textContent = '';
-  // Small delay so screen readers notice repeated text.
-  setTimeout(() => { el.textContent = text; }, 50);
-}
-
-// ---------- setup ----------
-function fillPicker() {
-  const sel = $('vis-select');
-  for (const v of visualizations) sel.append(new Option(v.title, v.id));
-  sel.addEventListener('change', () => load(sel.value));
-}
-
-async function load(id) {
-  pause();
-  vis = visualizations.find((v) => v.id === id) || visualizations[0];
-  dateAt = makeDater(vis);
-  analyze = makeAnalyzer(config.grid, vis.exclude);
-  $('vis-title').textContent = vis.title;
-  $('vis-summary').textContent = vis.summary;
-  $('credit').textContent = vis.credit;
-  const a = $('source-link'); a.href = vis.sourceUrl; a.textContent = vis.sourceUrl;
-  video.poster = vis.poster;
-  video.src = vis.video;
-  ui.download.hidden = true;
-  lastDescribedDay = null; lastPct = null; lastView = null; liveFrame = null;
-  track = null;
-  try {
-    const res = await fetch(vis.features);
-    if (res.ok) {
-      const json = await res.json();
-      // A precomputed track only fits if it used the same grid as config.js.
-      if (json.grid?.columns === config.grid.columns && json.grid?.rows === config.grid.rows) track = makeTrack(json);
-    }
-  } catch { /* no track: we scan the video when needed */ }
+// ---------- loading ----------
+async function load(entry) {
+  ds = entry;
+  $('title').textContent = ds.title;
+  $('about-h').textContent = ds.title;
+  $('about-text').textContent = ds.about;
+  $('credit').textContent = ds.credit;
+  const a = $('source'); a.href = ds.sourceUrl; a.textContent = ds.sourceTitle;
+  $('intro').textContent = `${ds.about} One flash is one click. Space plays and pauses. Left and right arrows turn the globe. ` +
+    'Up and down arrows make time run faster or slower. Comma and full stop move one month. D says what is playing. W makes a WAV file.';
+  const [bin, coast] = await Promise.all([
+    fetch(ds.events).then((r) => r.arrayBuffer()),
+    fetch('data/coast.json').then((r) => r.json()),
+  ]);
+  const hl = new DataView(bin).getUint32(0, true);
+  const head = JSON.parse(new TextDecoder().decode(new Uint8Array(bin, 4, hl)));
+  let o = 4 + hl;
+  const frameStart = new Uint32Array(bin.slice(o, o + 4 * (head.frames + 1))); o += 4 * (head.frames + 1);
+  const frameDay = new Float32Array(bin.slice(o, o + 4 * (head.frames + 1))); o += 4 * (head.frames + 1);
+  const cells = new Uint16Array(bin.slice(o, o + 2 * head.events));
+  for (let f = 1; f <= head.frames; f++) if (frameDay[f] < frameDay[f - 1] + 1e-3) frameDay[f] = frameDay[f - 1] + 1e-3;
+  data = { frameStart, frameDay, cells, frames: head.frames, endDay: frameDay[head.frames], start: Date.parse(ds.startDate + 'T00:00:00Z') };
+  curveL = new Float32Array(data.frames); curveR = new Float32Array(data.frames);
+  scope.setCoast(coast);
+  setView(config.view.lon, config.view.lat, true);
+  data.ref = gainReference(cells, gL);        // levels are set against the starting view
+  setView(view.lon, view.lat, true);
+  setSpeed(speed, true);
   updateReadouts();
+  if (node) node.port.postMessage({ data: copyData() });
 }
 
-function describeMapping() {
-  const c = config;
-  $('mapping-note').textContent =
-    'Placeholder sound settings. The composer has not chosen the scale, root or pitch mapping yet; these are working defaults.';
-  $('mapping-detail').textContent =
-    `Now: ${c.root} ${c.scale} scale over ${c.octaveSpan} octaves, ${c.bpm} beats per minute. ` +
-    `Pitch follows ${c.pitch.source === 'row' ? 'height in the picture (higher on screen is a higher note)' : c.pitch.source}. ` +
-    `A note plays where ${c.trigger.source} passes ${Math.round(c.trigger.threshold * 100)} percent. ` +
-    `Brightness opens up the tone.`;
+const copyData = () => ({ frameStart: data.frameStart.slice(), frameDay: data.frameDay.slice(), cells: data.cells.slice(), ref: data.ref });
+
+// ---------- view: which side of the Earth faces the listener ----------
+function setView(lon, lat, now) {
+  view.lon = ((lon + 540) % 360) - 180;
+  view.lat = Math.max(-70, Math.min(70, lat));
+  projectCells(view.lon, view.lat, proj);
+  cellGains(proj, config.view.falloff, gL, gR);
+  scope.setView(view.lon, view.lat);
+  clearTimeout(curvesTimer);
+  if (now) updateCurves(); else curvesTimer = setTimeout(updateCurves, 90);
+  if (node) node.port.postMessage({ view: { gL: gL.slice(), gR: gR.slice(), curveL: curveL.slice(), curveR: curveR.slice() } });
+}
+
+function updateCurves() {
+  if (!data) return;
+  frameCurves(data.frameStart, data.cells, gL, gR, curveL, curveR);
+  // reference for the rim trace: the mean rate (per day) of this view
+  let sum = 0;
+  for (let f = 0; f < data.frames; f++) sum += curveL[f] + curveR[f];
+  curveRef = sum / data.endDay || 1;
+  // the average year for this view, in 180 steps: the shape heard as a tone
+  const M = 180, acc = new Float32Array(M), n = new Float32Array(M);
+  for (let f = 0; f < data.frames; f++) {
+    const d = data.frameDay[f], span = data.frameDay[f + 1] - d;
+    const i = Math.floor(yearFrac(d + span / 2) * M) % M;
+    acc[i] += (curveL[f] + curveR[f]); n[i] += span;
+  }
+  meanYear = new Float32Array(M + 1); meanYear.frac = new Float32Array(M + 1);
+  for (let i = 0; i <= M; i++) { const j = i % M; meanYear[i] = n[j] ? acc[j] / n[j] / curveRef / 2 : 0; meanYear.frac[i] = i / M; }
+  if (node) node.port.postMessage({ view: { gL: gL.slice(), gR: gR.slice(), curveL: curveL.slice(), curveR: curveR.slice() } });
+}
+
+// ---------- time helpers ----------
+const dateOf = (d) => new Date(data.start + d * 86400000);
+function yearFrac(d) {
+  const t = dateOf(d), y0 = Date.UTC(t.getUTCFullYear(), 0, 1), y1 = Date.UTC(t.getUTCFullYear() + 1, 0, 1);
+  return (t.getTime() - y0) / (y1 - y0);
+}
+function frameOf(d) {
+  let lo = 0, hi = data.frames - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (data.frameDay[m] <= d) lo = m; else hi = m - 1; }
+  return lo;
+}
+// lightning in view around day d, relative to this view's average (1 = average)
+function rateAt(d, halfWindowDays = 4) {
+  const f0 = frameOf(Math.max(0, d - halfWindowDays)), f1 = frameOf(Math.min(data.endDay - 1e-3, d + halfWindowDays));
+  let s = 0;
+  for (let f = f0; f <= f1; f++) s += curveL[f] + curveR[f];
+  return s / (data.frameDay[f1 + 1] - data.frameDay[f0]) / curveRef;
+}
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function speedText(s, long) {
+  const yr = s / 365.25;
+  const n = (v) => (v >= 100 ? Math.round(v) : v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2));
+  if (yr >= 1) return long ? `${n(yr)} years per second` : `${n(yr)} yr/s`;
+  return long ? `${n(s)} days per second` : `${n(s)} d/s`;
+}
+const fastAll = () => speed > 730;   // more than two years a second: no single date makes sense
+
+function updateReadouts() {
+  if (!data) return;
+  const t = dateOf(day);
+  ui.date.textContent = fastAll() ? 'All years' : `${MONTHS[t.getUTCMonth()].slice(0, 3)} ${t.getUTCFullYear()}`;
+  ui.speedv.textContent = speedText(speed);
+  if (document.activeElement !== ui.time) ui.time.value = Math.round((day / data.endDay) * 1000);
+  ui.time.setAttribute('aria-valuetext', `${MONTHS[t.getUTCMonth()]} ${t.getUTCFullYear()}`);
+  ui.speed.setAttribute('aria-valuetext', speedText(speed, true));
+}
+
+// ---------- spoken description ----------
+function say(text) { ui.live.textContent = ''; setTimeout(() => { ui.live.textContent = text; }, 40); }
+
+function describe() {
+  if (!data) return '';
+  const where = `Facing ${placeName(view.lon, view.lat)}.`;
+  if (fastAll()) {
+    const hz = speed / 365.25;
+    return `All years, ${speedText(speed, true)}. ${where} One year lasts ${(1000 / hz).toFixed(hz > 100 ? 1 : 0)} milliseconds, so the seasons sound as a tone near ${Math.round(hz)} hertz.`;
+  }
+  const t = dateOf(day), r = rateAt(day);
+  const level = r < 0.3 ? 'very little lightning' : r < 0.7 ? 'less lightning than usual' : r < 1.4 ? 'about the usual amount of lightning'
+    : r < 2.2 ? 'more lightning than usual' : `heavy lightning, about ${Math.round(r)} times the usual amount`;
+  return `${MONTHS[t.getUTCMonth()]} ${t.getUTCFullYear()}. ${where} ${level[0].toUpperCase() + level.slice(1)} on this side of the Earth. ${speedText(speed, true)}.`;
 }
 
 // ---------- audio ----------
-function ensureAudio() {
+async function ensureAudio() {
   if (ctx) return;
   if (navigator.audioSession) { try { navigator.audioSession.type = 'playback'; } catch {} }
   ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-  volumeNode = ctx.createGain();
-  volumeNode.gain.value = ui.volume.value / 100;
-  volumeNode.connect(ctx.destination);
-  engine = makeEngine(ctx, config, volumeNode);
-}
-
-function currentFrame() {
-  // Use the live reading if it is fresh; otherwise the precomputed track
-  // (for example when the browser stops painting a hidden video).
-  if (liveFrame && Math.abs(video.currentTime - liveTime) < 0.5) return liveFrame;
-  return track ? track.at(video.currentTime) : null;
-}
-
-function tick() {
-  const dur = stepSeconds(config);
-  while (nextTime < ctx.currentTime + 0.15) {
-    engine.step(nextTime, currentFrame(), stepIndex);
-    if (config.monthBell.enabled) {
-      const m = dateAt(video.currentTime).getUTCMonth();
-      if (lastMonth !== null && m !== lastMonth) engine.bell(nextTime);
-      lastMonth = m;
-    }
-    nextTime += dur;
-    stepIndex++;
-  }
-}
-
-// ---------- live frame analysis ----------
-function watchFrames() {
-  const onFrame = () => {
-    if (video.paused) return;
-    try { liveFrame = analyze(video); liveTime = video.currentTime; } catch { liveFrame = null; }
-    drawOverlay();
-    updateReadouts();
-    autoAnnounce();
-    schedule();
+  await ctx.audioWorklet.addModule('js/dsp.js');
+  node = new AudioWorkletNode(ctx, 'audifier', { numberOfInputs: 0, outputChannelCount: [2], processorOptions: { cfg: JSON.parse(JSON.stringify(config)) } });
+  node.port.onmessage = (e) => {
+    day = e.data.day;
+    if (e.data.ended) { setPlaying(false); say('End.'); }
   };
-  const schedule = () => video.requestVideoFrameCallback
-    ? video.requestVideoFrameCallback(onFrame)
-    : requestAnimationFrame(onFrame);
-  schedule();
-}
-
-function drawOverlay() {
-  const r = overlay.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  if (overlay.width !== Math.round(r.width * dpr)) { overlay.width = Math.round(r.width * dpr); overlay.height = Math.round(r.height * dpr); }
-  const g = overlay.getContext('2d');
-  g.clearRect(0, 0, overlay.width, overlay.height);
-  if (video.paused || !ctx) return;
-  const cols = config.grid.columns;
-  const col = ((stepIndex - 1) % cols + cols) % cols;
-  const w = overlay.width / cols;
-  g.fillStyle = 'rgba(143, 214, 255, 0.12)';
-  g.fillRect(col * w, 0, w, overlay.height);
-  g.strokeStyle = 'rgba(255, 211, 77, 0.8)';
-  g.lineWidth = 2 * dpr;
-  g.strokeRect(col * w + dpr, dpr, w - 2 * dpr, overlay.height - 2 * dpr);
-}
-
-// ---------- descriptions ----------
-function updateReadouts() {
-  if (!vis) return;
-  const t = video.currentTime || 0;
-  const d = fmtDate(dateAt(t));
-  ui.date.textContent = d;
-  const f = currentFrame();
-  ui.ice.textContent = f ? `Sea ice in view: ${Math.round(f.total.ice * 100)}%` : 'Sea ice in view: –';
-  if (video.duration) {
-    ui.seek.value = Math.round((t / video.duration) * 1000);
-    ui.seek.setAttribute('aria-valuetext', `${d}, ${Math.round(t)} of ${Math.round(video.duration)} seconds`);
+  node.connect(ctx.destination);
+  if (fx.reverb > 0) {                      // optional, off by default
+    const len = Math.floor(ctx.sampleRate * fx.reverbSeconds), ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
+    const conv = ctx.createConvolver(); conv.buffer = ir;
+    const wet = ctx.createGain(); wet.gain.value = fx.reverb * 0.5;
+    node.connect(conv).connect(wet).connect(ctx.destination);
   }
+  if (fx.delay > 0) {
+    const d = ctx.createDelay(2); d.delayTime.value = fx.delaySeconds;
+    const fb = ctx.createGain(); fb.gain.value = fx.delayFeedback;
+    const wet = ctx.createGain(); wet.gain.value = fx.delay;
+    node.connect(d); d.connect(fb).connect(d); d.connect(wet).connect(ctx.destination);
+  }
+  node.port.postMessage({ data: copyData(), view: { gL: gL.slice(), gR: gR.slice(), curveL: curveL.slice(), curveR: curveR.slice() }, speed, seek: day });
 }
 
-function describeNow(urgent) {
-  const t = video.currentTime || 0;
-  const r = describe(vis, currentFrame(), t, dateAt, config.grid, lastPct);
-  const view = viewAt(vis, t);
-  lastPct = r.pct ?? lastPct;
-  lastView = view;
-  lastDescribedDay = dateAt(t).getTime() / 86400000;
-  say(`${r.text} ${view.text}`, urgent);
+async function setPlaying(on) {
+  if (on) {
+    try { await ensureAudio(); await ctx.resume(); } catch (e) { ui.status.textContent = 'Sound could not start: ' + e.message; return; }
+  }
+  playing = on;
+  node?.port.postMessage({ playing: on });
+  ui.play.textContent = on ? 'Pause' : 'Play';
+  lastSaid = performance.now();
+  say(on ? describe() : 'Paused. ' + describe());
 }
 
-function autoAnnounce() {
-  if (!autoDescribe) return;
-  const t = video.currentTime;
-  const day = dateAt(t).getTime() / 86400000;
-  const view = viewAt(vis, t);
-  if (lastDescribedDay === null || view !== lastView || day - lastDescribedDay >= config.describeEveryDays) describeNow(false);
-}
-
-// ---------- transport ----------
-async function play() {
-  ensureAudio();
-  await ctx.resume();
-  if (video.ended || video.currentTime >= video.duration - 0.05) video.currentTime = 0;
-  try { await video.play(); } catch (e) { say('The video could not start. ' + e.message, true); return; }
-  engine.startDrone(ctx.currentTime);
-  nextTime = ctx.currentTime + 0.05;
-  lastMonth = null;
-  clearInterval(timer);
-  timer = setInterval(tick, 25);
-  tick();
-  watchFrames();
-  ui.play.textContent = 'Pause';
-  if (autoDescribe) describeNow(false);
-}
-
-function pause() {
-  if (!video.paused) video.pause();
-  clearInterval(timer); timer = null;
-  if (engine && ctx) engine.stopDrone(ctx.currentTime);
-  ui.play.textContent = 'Play';
-  drawOverlay();
-}
-
-function toggle() { video.paused ? play() : (pause(), say('Paused. ' + fmtDate(dateAt(video.currentTime)))); }
-
-function seekBy(s) { seekTo((video.currentTime || 0) + s); }
-function seekTo(t) {
-  if (!video.duration) return;
-  video.currentTime = Math.max(0, Math.min(video.duration - 0.05, t));
-  if (video.paused) liveFrame = null;
-}
-
-video.addEventListener('seeked', () => {
-  if (video.paused) { try { liveFrame = analyze(video); liveTime = video.currentTime; } catch {} }
+function setSpeed(s, quiet) {
+  speed = Math.max(config.speed.min, Math.min(config.speed.max, s));
+  node?.port.postMessage({ speed });
+  const { min, max } = config.speed;
+  if (document.activeElement !== ui.speed || quiet) ui.speed.value = Math.round((Math.log(speed / min) / Math.log(max / min)) * 1000);
   updateReadouts();
-  lastMonth = null;
-  describeNow(false);
-});
-video.addEventListener('ended', () => { pause(); say('End of the animation. ' + viewAt(vis, video.duration).text); });
-video.addEventListener('loadedmetadata', updateReadouts);
+  if (!quiet) { lastSaid = performance.now(); say(fastAll() ? describe() : speedText(speed, true)); }
+}
+
+function seek(d) {
+  day = Math.max(0, Math.min(data.endDay - 0.01, d));
+  lastDrawDay = day;
+  node?.port.postMessage({ seek: day });
+  updateReadouts();
+}
+
+// ---------- drawing ----------
+function tick() {
+  requestAnimationFrame(tick);
+  if (!data) return;
+  let count = 0;
+  if (playing) {
+    // flashes between the last picture and this one
+    let d0 = lastDrawDay, d1 = day;
+    if (d1 < d0 || d1 - d0 > 400) d0 = Math.max(0, d1 - Math.min(400, speed / 30));   // looped or jumped
+    const f0 = frameOf(d0), f1 = frameOf(d1);
+    const i0 = data.frameStart[f0] + Math.floor((data.frameStart[f0 + 1] - data.frameStart[f0]) * Math.min(1, (d0 - data.frameDay[f0]) / (data.frameDay[f0 + 1] - data.frameDay[f0])));
+    const i1 = data.frameStart[f1] + Math.floor((data.frameStart[f1 + 1] - data.frameStart[f1]) * Math.min(1, (d1 - data.frameDay[f1]) / (data.frameDay[f1 + 1] - data.frameDay[f1])));
+    const n = Math.max(0, i1 - i0), cap = blips.length;
+    if (n <= cap) { for (let i = 0; i < n; i++) blips[i] = data.cells[i0 + i]; count = n; }
+    else { for (let i = 0; i < cap; i++) blips[i] = data.cells[i0 + Math.floor(Math.random() * n)]; count = cap; }
+    lastDrawDay = d1;
+
+    const now = performance.now();
+    if (now - lastSaid > config.describeEverySeconds * 1000) { lastSaid = now; say(describe()); }
+  }
+  // rim trace: the past year up to now, or the average year when time runs very fast
+  let trace = meanYear, traceAge = false;
+  if (!fastAll() && meanYear) {
+    const M = 120; trace = tick.trace || (tick.trace = Object.assign(new Float32Array(M), { frac: new Float32Array(M) }));
+    let m = 0;
+    for (; m < M; m++) {
+      const d = day - (m / (M - 1)) * 330;
+      if (d <= 3) break;                                   // nothing before the data starts
+      trace[m] = rateAt(d, 3) / 2; trace.frac[m] = yearFrac(d);
+    }
+    trace.count = m;
+    traceAge = true;
+  }
+  scope.frame({ blips, count, proj, yearFrac: yearFrac(day), showHand: speed <= 550, trace: trace && (trace.count ?? 2) >= 2 ? trace : null, traceAge, running: playing });
+  updateReadouts();
+}
 
 // ---------- WAV ----------
 async function makeWav() {
-  ui.render.disabled = true;
-  ui.download.hidden = true;
-  const speed = Number(ui.speed.value);
+  if (!data || ui.wav.disabled) return;
+  ui.wav.disabled = true; ui.download.hidden = true;
   try {
-    if (!track) {
-      pause();
-      ui.renderStatus.textContent = 'Reading the animation frame by frame…';
-      const json = await scanVideo(video, analyze, 5, (p) => {
-        ui.renderStatus.textContent = `Reading the animation: ${Math.round(p * 100)}%`;
-      });
-      json.grid = config.grid;
-      track = makeTrack(json);
+    const sr = config.render.sampleRate;
+    const a = new Audifier(sr, config);
+    a.setData(data); a.setView({ gL, gR, curveL, curveR });
+    a.speed = speed; a.playing = true;
+    const pass = data.endDay / speed;                       // seconds for one pass through the data
+    const fromStart = pass <= config.render.maxSeconds;
+    const secs = pass < 5 ? config.render.toneSeconds : Math.min(pass, config.render.maxSeconds);
+    a.seek(fromStart ? 0 : day);
+    const total = Math.ceil(secs * sr), L = new Float32Array(total), R = new Float32Array(total);
+    const chunk = sr;
+    for (let i = 0; i < total; i += chunk) {
+      const n = Math.min(chunk, total - i);
+      a.process(L.subarray(i, i + n), R.subarray(i, i + n), n);
+      ui.status.textContent = `Making WAV: ${Math.round(((i + n) / total) * 100)}%`;
+      await new Promise((r) => setTimeout(r));
     }
-    ui.renderStatus.textContent = 'Rendering sound…';
-    const buf = await renderOffline(config, track.duration, (t) => track.at(t), dateAt, speed);
-    const blob = toWav(buf);
+    const blob = toWav({ numberOfChannels: 2, sampleRate: sr, length: total, getChannelData: (c) => (c ? R : L) });
     if (wavUrl) URL.revokeObjectURL(wavUrl);
     wavUrl = URL.createObjectURL(blob);
-    const name = `earth-jukebox-${vis.id}${speed !== 1 ? '-speed-' + speed : ''}.wav`;
-    ui.download.href = wavUrl;
-    ui.download.download = name;
-    ui.download.textContent = `Download ${name} (${(blob.size / 1048576).toFixed(1)} MB, ${Math.round(buf.duration)} seconds)`;
-    ui.download.hidden = false;
-    ui.renderStatus.textContent = 'WAV file ready.';
+    const name = `earth-jukebox-${ds.id}-${speedText(speed).replace(/[ /.]+/g, '-')}.wav`;
+    Object.assign(ui.download, { href: wavUrl, download: name, hidden: false });
+    ui.download.textContent = `Download WAV, ${Math.round(secs)} s`;
+    ui.download.setAttribute('aria-label', `Download ${name}, ${Math.round(secs)} seconds, ${(blob.size / 1048576).toFixed(1)} megabytes`);
+    ui.status.textContent = '';
     ui.download.focus();
-  } catch (e) {
-    ui.renderStatus.textContent = 'Could not make the WAV file: ' + e.message;
-  } finally {
-    ui.render.disabled = false;
-  }
+  } catch (e) { ui.status.textContent = 'Could not make the WAV file: ' + e.message; }
+  ui.wav.disabled = false;
 }
 
 // ---------- controls ----------
-function setSoundOnly(on) {
-  document.body.classList.toggle('soundonly', on);
-  ui.soundonly.setAttribute('aria-pressed', String(on));
-  $('soundonly-note').hidden = !on;
-  say(on ? 'Sound only mode on. The picture is hidden.' : 'Picture shown again.');
-}
-function setAuto(on) {
-  autoDescribe = on;
-  ui.autodesc.setAttribute('aria-pressed', String(on));
-  say(on ? 'Spoken updates on.' : 'Spoken updates off. Press D to hear a description.', true);
-}
-function setVolume(v) {
-  v = Math.max(0, Math.min(100, v));
-  ui.volume.value = v;
-  if (volumeNode) volumeNode.gain.setTargetAtTime(v / 100, ctx.currentTime, 0.02);
-}
-function setSpeed(dir) {
-  const opts = [...ui.speed.options].map((o) => o.value);
-  const i = Math.max(0, Math.min(opts.length - 1, opts.indexOf(ui.speed.value) + dir));
-  ui.speed.value = opts[i];
-  applySpeed();
-  say(`Speed: ${ui.speed.options[i].text}`);
-}
-function applySpeed() { video.playbackRate = Number(ui.speed.value); }
+const turn = (dLon, dLat) => { setView(view.lon + dLon, view.lat + dLat); lastSaid = performance.now(); say(`Facing ${placeName(view.lon, view.lat)}.`); };
+ui.play.addEventListener('click', () => setPlaying(!playing));
+ui.wav.addEventListener('click', makeWav);
+ui.info.addEventListener('click', () => ui.about.showModal());
+ui.close.addEventListener('click', () => ui.about.close());
+ui.about.addEventListener('click', (e) => { if (e.target === ui.about) ui.about.close(); });
+ui.time.addEventListener('input', () => seek((ui.time.value / 1000) * data.endDay));
+ui.time.addEventListener('change', () => say(describe()));
+ui.speed.addEventListener('input', () => { const { min, max } = config.speed; setSpeed(min * Math.pow(max / min, ui.speed.value / 1000), true); });
+ui.speed.addEventListener('change', () => say(fastAll() ? describe() : speedText(speed, true)));
 
-ui.play.addEventListener('click', toggle);
-ui.back.addEventListener('click', () => seekBy(-5));
-ui.fwd.addEventListener('click', () => seekBy(5));
-ui.describe.addEventListener('click', () => describeNow(true));
-ui.seek.addEventListener('input', () => seekTo((ui.seek.value / 1000) * video.duration));
-ui.volume.addEventListener('input', () => setVolume(Number(ui.volume.value)));
-ui.speed.addEventListener('change', applySpeed);
-ui.soundonly.addEventListener('click', () => setSoundOnly(ui.soundonly.getAttribute('aria-pressed') !== 'true'));
-ui.autodesc.addEventListener('click', () => setAuto(!autoDescribe));
-ui.render.addEventListener('click', makeWav);
+ui.globe.addEventListener('focus', () => scope.setFocus(ui.globe.matches(':focus-visible')));
+ui.globe.addEventListener('blur', () => scope.setFocus(false));
+
+// drag the globe; a tap plays or pauses
+let drag = null;
+ui.globe.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; ui.globe.setPointerCapture(e.pointerId); });
+ui.globe.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y, k = 57.3 / scope.radius;
+  drag.moved += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY;
+  if (drag.moved > 6) setView(view.lon - dx * k, view.lat + dy * k);
+});
+ui.globe.addEventListener('pointerup', (e) => {
+  if (drag && drag.moved <= 6 && scope.inside(e.clientX, e.clientY)) setPlaying(!playing);
+  else if (drag) say(`Facing ${placeName(view.lon, view.lat)}.`);
+  drag = null;
+});
+ui.globe.addEventListener('pointercancel', () => { drag = null; });
+ui.globe.addEventListener('wheel', (e) => { e.preventDefault(); setSpeed(speed * Math.pow(2, -e.deltaY / 400), true); }, { passive: false });
 
 document.addEventListener('keydown', (e) => {
-  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.ctrlKey || e.metaKey || e.altKey || ui.about.open || !data) return;
   const tag = e.target.tagName;
-  const inField = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
-  const onButton = tag === 'BUTTON' || tag === 'A';
-  const k = e.key;
-  if (inField && k !== 'Escape') return; // let sliders and menus use their own keys
+  if (tag === 'INPUT') return;                               // sliders keep their own arrow keys
+  const step = config.view.stepDegrees, k = e.key;
   const act = {
-    ' ': onButton ? null : toggle, k: toggle, K: toggle,
-    ArrowLeft: () => seekBy(-5), ArrowRight: () => seekBy(5),
-    Home: () => seekTo(0), End: () => seekTo(video.duration),
-    ArrowUp: () => { setVolume(Number(ui.volume.value) + 10); say(`Volume ${ui.volume.value}`); },
-    ArrowDown: () => { setVolume(Number(ui.volume.value) - 10); say(`Volume ${ui.volume.value}`); },
-    '[': () => setSpeed(-1), ']': () => setSpeed(1),
-    d: () => describeNow(true), D: () => describeNow(true),
-    a: () => setAuto(!autoDescribe), A: () => setAuto(!autoDescribe),
-    s: () => setSoundOnly(ui.soundonly.getAttribute('aria-pressed') !== 'true'),
-    S: () => setSoundOnly(ui.soundonly.getAttribute('aria-pressed') !== 'true'),
+    ' ': tag === 'BUTTON' || tag === 'A' ? null : () => setPlaying(!playing),
+    ArrowLeft: () => turn(-step, 0), ArrowRight: () => turn(step, 0),
+    ArrowUp: () => (e.shiftKey ? turn(0, step) : setSpeed(speed * Math.pow(2, 1 / 3))),
+    ArrowDown: () => (e.shiftKey ? turn(0, -step) : setSpeed(speed / Math.pow(2, 1 / 3))),
+    ',': () => { seek(day - 30.44); say(describe()); }, '.': () => { seek(day + 30.44); say(describe()); },
+    Home: () => { seek(0); say(describe()); },
+    d: () => say(describe()), D: () => say(describe()),
     w: makeWav, W: makeWav,
-    Escape: () => { e.target.blur?.(); $('controls').focus(); },
+    i: () => ui.about.showModal(), '?': () => ui.about.showModal(),
   }[k];
   if (!act) return;
   e.preventDefault();
   act();
 });
 
-// For tools/build-features.mjs: scan the video and return the packed track.
-window.__buildFeatures = async () => {
-  await new Promise((r) => (video.readyState >= 1 ? r() : video.addEventListener('loadedmetadata', r, { once: true })));
-  const json = await scanVideo(video, analyze, 5);
-  json.grid = config.grid;
-  return json;
-};
-
-fillPicker();
-describeMapping();
-const fromHash = location.hash.slice(1);
-load(visualizations.some((v) => v.id === fromHash) ? fromHash : visualizations[0].id);
+window.addEventListener('resize', scope.resize);
+scope.resize();
+load(datasets[0]).then(() => requestAnimationFrame(tick)).catch((e) => { ui.status.textContent = 'Could not load the data: ' + e.message; });
