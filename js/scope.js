@@ -7,13 +7,13 @@
 
 import { project } from './geo.js';
 
-export function makeScope(canvas, cfg) {
+export function makeScope(canvas, cfg, look) {
   const g = canvas.getContext('2d');
   const base = document.createElement('canvas'), bg = base.getContext('2d');   // coast, rim, ticks
   const phos = document.createElement('canvas'), pg = phos.getContext('2d');   // blips with afterglow
   const heat = document.createElement('canvas'), hg = heat.getContext('2d');   // where flashes have been
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const P = cfg.phosphor, G = cfg.glow;
+  const P = look.line, G = look.lineGlow, DP = look.data, DG = look.dataGlow;
   let w = 0, h = 0, dpr = 1, cx = 0, cy = 0, R = 0;
   let coast = [], lon0 = 0, lat0 = 0, baseDirty = true, focused = false, heatDirty = true, heatAge = 0;
 
@@ -30,10 +30,10 @@ export function makeScope(canvas, cfg) {
     baseDirty = true;
   }
 
-  function beam(ctx, alpha, widthCore, draw) {   // glow pass then core, like a CRT beam
+  function beam(ctx, alpha, widthCore, draw, data) {   // glow pass then core, like a CRT beam
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.strokeStyle = `rgba(${G},${alpha * 0.22})`; ctx.lineWidth = widthCore * 4.5 * dpr; ctx.beginPath(); draw(ctx); ctx.stroke();
-    ctx.strokeStyle = `rgba(${P},${alpha})`; ctx.lineWidth = widthCore * dpr; ctx.beginPath(); draw(ctx); ctx.stroke();
+    ctx.strokeStyle = `rgba(${data ? DG : G},${alpha * 0.22})`; ctx.lineWidth = widthCore * 4.5 * dpr; ctx.beginPath(); draw(ctx); ctx.stroke();
+    ctx.strokeStyle = `rgba(${data ? DP : P},${alpha})`; ctx.lineWidth = widthCore * dpr; ctx.beginPath(); draw(ctx); ctx.stroke();
   }
 
   function drawBase() {
@@ -74,22 +74,22 @@ export function makeScope(canvas, cfg) {
   // blips: Int32 cell ids; proj: {x,y,z} per cell
   function frame({ blips, count, proj, seen, showMarker, trace, traceAge, running }) {
     if (baseDirty) drawBase();
-    if (seen && (heatDirty || ++heatAge > 45)) drawHeat(seen, proj);
+    if (seen && (heatDirty || ++heatAge > 5)) drawHeat(seen, proj);
 
     // afterglow
     pg.globalCompositeOperation = 'destination-out';
-    pg.fillStyle = `rgba(0,0,0,${running ? cfg.persistence : 0.03})`;
+    pg.fillStyle = `rgba(0,0,0,${cfg.persistence})`;
     pg.fillRect(0, 0, w, h);
     pg.globalCompositeOperation = 'lighter';
     if (count) {
       const jit = R * 0.0175, s1 = 4.5 * dpr, s2 = 1.6 * dpr;   // jitter fills the 1-degree cell
-      pg.fillStyle = `rgba(${G},0.28)`;
+      pg.fillStyle = `rgba(${DG},0.28)`;
       for (let i = 0; i < count; i++) {
         const c = blips[i]; if (proj.z[c] <= 0) continue;
         const x = cx + proj.x[c] * R + (hash(i * 2 + c) - 0.5) * jit, y = cy - proj.y[c] * R + (hash(i * 2 + 1 + c) - 0.5) * jit;
         pg.fillRect(x - s1 / 2, y - s1 / 2, s1, s1);
       }
-      pg.fillStyle = `rgba(${P},0.95)`;
+      pg.fillStyle = `rgba(${DP},0.95)`;
       for (let i = 0; i < count; i++) {
         const c = blips[i]; if (proj.z[c] <= 0) continue;
         const x = cx + proj.x[c] * R + (hash(i * 2 + c) - 0.5) * jit, y = cy - proj.y[c] * R + (hash(i * 2 + 1 + c) - 0.5) * jit;
@@ -113,15 +113,15 @@ export function makeScope(canvas, cfg) {
           const i0 = Math.floor((b / BUCKETS) * (M - 1)), i1 = Math.floor(((b + 1) / BUCKETS) * (M - 1));
           let p = pt(trace, i0); c.moveTo(p[0], p[1]);
           for (let i = i0 + 1; i <= i1; i++) { p = pt(trace, i); c.lineTo(p[0], p[1]); }
-        });
+        }, true);
       }
     }
 
     // now: a bright dot riding the rim line
     if (trace && showMarker) {
       const p = pt(trace, 0);
-      g.fillStyle = `rgba(${G},0.35)`; g.beginPath(); g.arc(p[0], p[1], 7 * dpr, 0, Math.PI * 2); g.fill();
-      g.fillStyle = `rgba(${P},1)`; g.beginPath(); g.arc(p[0], p[1], 2.6 * dpr, 0, Math.PI * 2); g.fill();
+      g.fillStyle = `rgba(${DG},0.35)`; g.beginPath(); g.arc(p[0], p[1], 7 * dpr, 0, Math.PI * 2); g.fill();
+      g.fillStyle = `rgba(${DP},1)`; g.beginPath(); g.arc(p[0], p[1], 2.6 * dpr, 0, Math.PI * 2); g.fill();
     }
 
     g.drawImage(phos, 0, 0);
@@ -131,15 +131,12 @@ export function makeScope(canvas, cfg) {
   function drawHeat(seen, proj) {
     heatDirty = false; heatAge = 0;
     hg.clearRect(0, 0, w, h);
-    let max = 0;
-    for (let i = 0; i < seen.length; i++) if (seen[i] > max) max = seen[i];
-    if (!max) return;
-    const k = 1 / Math.log(1 + max), size = Math.max(1.2 * dpr, R * 0.011);
+    const k = 1 / Math.log(1 + 25), size = Math.max(1.2 * dpr, R * 0.011);   // 25 flashes in a cell = full mark
     for (let i = 0; i < seen.length; i++) {
-      const c = seen[i]; if (!c || proj.z[i] <= 0.02) continue;
-      const v = Math.log(1 + c) * k, alpha = 0.42 * v * v * v;     // only the busy places show
+      const c = seen[i]; if (c < 0.05 || proj.z[i] <= 0.02) continue;
+      const v = Math.min(1, Math.log(1 + c) * k), alpha = 0.5 * v * v;     // only the busy places show
       if (alpha < 0.012) continue;
-      hg.fillStyle = `rgba(${G},${alpha.toFixed(3)})`;
+      hg.fillStyle = `rgba(${DG},${alpha.toFixed(3)})`;
       hg.fillRect(cx + proj.x[i] * R - size / 2, cy - proj.y[i] * R - size / 2, size, size);
     }
   }

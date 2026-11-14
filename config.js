@@ -36,14 +36,16 @@ export default {
   // curve and stops adding single clicks (same signal, far less work).
   curveAboveEventsPerSample: 6,
 
-  // PLACEHOLDER: off. The ring. Lightning makes the space between the ground
+  // PLACEHOLDER: off. The chord. Lightning makes the space between the ground
   // and the upper atmosphere resonate at 7.83, 14.3, 20.8, 27.3 and 33.8 Hz
-  // (the Schumann resonances). Moved up `octavesUp` octaves these are audible
-  // pitches, and every click strikes them. mix 0 = clicks only, 1 = ring only.
-  // The real resonance is dull (q about 5). A higher q makes it ring like a
-  // bell, which is a choice, not a measurement.
-  // Try from the address bar: ?ring=1  or  ?ring=0.6&q=80&octaves=6
-  ring: { mix: 0, octavesUp: 5, modesHz: [7.83, 14.3, 20.8, 27.3, 33.8], q: 40 },
+  // (the Schumann resonances). Moved up `octavesUp` octaves these are five
+  // audible pitches, and every click strikes all five.
+  //   mix           0 = clicks only. The Chord button switches to `onMix`.
+  //   onMix         1 = chord only, lower leaves some of the click in.
+  //   decaySeconds  how long a struck pitch rings. Long = smooth held tones.
+  //                 Short (0.02) = closer to the real, dull resonance, and buzzy.
+  // Try from the address bar: ?chord=1  or  ?chord=0.7&decay=1.5&octaves=6
+  ring: { mix: 0, onMix: 0.9, octavesUp: 5, modesHz: [7.83, 14.3, 20.8, 27.3, 33.8], decaySeconds: 0.8 },
 
   // PLACEHOLDER: no effects. Checo is undecided. 0 = off, 1 = fully wet.
   // Try them from the address bar: ?reverb=0.3&delay=0.2  (also ?click=1500 for click colour)
@@ -55,10 +57,18 @@ export default {
   view: { lon: 10, lat: 10, falloff: 1, stepDegrees: 15 },
 
   // ---- Picture -----------------------------------------------------------
+  // PLACEHOLDER look. `yellow` follows NASA's own frames: grey Earth, yellow
+  // flashes. `green` is the oscilloscope look of checocadena.com.
+  // Try from the address bar: ?look=green
+  look: 'yellow',
+  looks: {
+    //        coast and rim        its glow                 flashes, rim line     their glow             text       sliders, focus
+    yellow: { line: '208,214,224', lineGlow: '120,140,175', data: '255,232,120', dataGlow: '255,190,0', ink: '#eef1f5', accent: '#ffd84a' },
+    green:  { line: '225,255,236', lineGlow: '80,255,150',  data: '225,255,236', dataGlow: '80,255,150', ink: '#e1ffec', accent: '#e1ffec' },
+  },
   scope: {
-    phosphor: '225,255,236',   // line colour, same as checocadena.com
-    glow: '80,255,150',
     persistence: 0.1,          // how fast a flash fades (higher = shorter afterglow)
+    markHalfLifeSeconds: 6,    // how long the faint mark a flash leaves takes to halve
     maxBlipsPerFrame: 900,
     coastAlpha: 0.6,
   },

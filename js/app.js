@@ -17,8 +17,9 @@ const num = (k, lo, hi) => (params.has(k) && isFinite(Number(params.get(k))) ? M
 const settings = JSON.parse(JSON.stringify(config));
 {
   const set = (v, f) => { if (v !== null) f(v); };
-  set(num('ring', 0, 1), (v) => { settings.ring.mix = v; });
-  set(num('q', 1, 400), (v) => { settings.ring.q = v; });
+  set(num('chord', 0, 1), (v) => { settings.ring.mix = v; if (v) settings.ring.onMix = v; });
+  set(num('decay', 0.005, 5), (v) => { settings.ring.decaySeconds = v; });
+  if (settings.looks[params.get('look')]) settings.look = params.get('look');
   set(num('octaves', 0, 8), (v) => { settings.ring.octavesUp = v; });
   set(num('click', 200, 20000), (v) => { settings.click.lowpassHz = v; });
   set(num('reverb', 0, 1), (v) => { settings.effects.reverb = v; });
@@ -27,7 +28,11 @@ const settings = JSON.parse(JSON.stringify(config));
 }
 const fx = settings.effects;
 
-const scope = makeScope($('scope'), config.scope);
+const look = settings.looks[settings.look];
+document.documentElement.style.setProperty('--ink', look.ink);
+document.documentElement.style.setProperty('--accent', look.accent);
+document.documentElement.style.setProperty('--glow', `rgb(${look.dataGlow})`);
+const scope = makeScope($('scope'), settings.scope, look);
 let ds, data = null;                       // dataset entry, { frameStart, frameDay, cells, frames, endDay }
 let view = { lon: config.view.lon, lat: config.view.lat };
 const proj = { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS) };
@@ -234,6 +239,9 @@ function tick() {
     const now = performance.now();
     if (now - lastSaid > config.describeEverySeconds * 1000) { lastSaid = now; say(describe()); }
   }
+  // the faint marks fade, playing or paused
+  const fade = Math.pow(0.5, 1 / (60 * settings.scope.markHalfLifeSeconds));
+  for (let i = 0; i < CELLS; i++) seen[i] *= fade;
   // rim trace: the past year up to now, or the average year when time runs very fast
   let trace = meanYear, traceAge = false;
   if (!fastAll() && meanYear) {
@@ -289,13 +297,13 @@ async function makeWav() {
 const turn = (dLon, dLat) => { setView(view.lon + dLon, view.lat + dLat); lastSaid = performance.now(); say(`Facing ${placeName(view.lon, view.lat)}.`); };
 ui.play.addEventListener('click', () => setPlaying(!playing));
 ui.wav.addEventListener('click', makeWav);
-// Ring on or off. The amount when on comes from config (or ?ring= in the address).
-const ringOnMix = settings.ring.mix || 1;
+// Chord on or off. The amount when on comes from config (or ?chord= in the address).
+const ringOnMix = settings.ring.mix || settings.ring.onMix;
 function setRing(on) {
   settings.ring.mix = on ? ringOnMix : 0;
   ui.ring.setAttribute('aria-pressed', String(on));
   node?.port.postMessage({ ring: settings.ring });
-  say(on ? 'Ring on.' : 'Ring off.');
+  say(on ? 'Chord on.' : 'Chord off.');
 }
 ui.ring.setAttribute('aria-pressed', String(settings.ring.mix > 0));
 ui.ring.addEventListener('click', () => setRing(settings.ring.mix === 0));
@@ -341,7 +349,7 @@ document.addEventListener('keydown', (e) => {
     Home: () => { seek(0); say(describe()); },
     d: () => say(describe()), D: () => say(describe()),
     w: makeWav, W: makeWav,
-    r: () => setRing(settings.ring.mix === 0), R: () => setRing(settings.ring.mix === 0),
+    c: () => setRing(settings.ring.mix === 0), C: () => setRing(settings.ring.mix === 0),
     i: () => ui.about.showModal(), '?': () => ui.about.showModal(),
   }[k];
   if (!act) return;

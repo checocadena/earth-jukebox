@@ -41,9 +41,10 @@ export class Audifier {
     for (const hz of ring.modesHz) {
       const f = hz * Math.pow(2, ring.octavesUp);
       if (f > this.sr * 0.45) continue;
-      const w = 2 * Math.PI * f / this.sr, alpha = Math.sin(w) / (2 * ring.q), a0 = 1 + alpha;
+      const q = Math.max(1, Math.PI * f * ring.decaySeconds);          // same ring time for every pitch
+      const w = 2 * Math.PI * f / this.sr, alpha = Math.sin(w) / (2 * q), a0 = 1 + alpha;
       this.modes.push({ b: alpha / a0, a1: -2 * Math.cos(w) / a0, a2: (1 - alpha) / a0, l1: 0, l2: 0, r1: 0, r2: 0, lx1: 0, lx2: 0, rx1: 0, rx2: 0 });
-      power += Math.PI * f / (ring.q * this.sr);
+      power += Math.PI * f / (q * this.sr);
     }
     this.ringGain = power ? 0.75 / Math.sqrt(power) : 0;
   }
