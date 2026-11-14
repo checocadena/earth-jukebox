@@ -36,8 +36,17 @@ export default {
   // curve and stops adding single clicks (same signal, far less work).
   curveAboveEventsPerSample: 6,
 
+  // PLACEHOLDER: off. The ring. Lightning makes the space between the ground
+  // and the upper atmosphere resonate at 7.83, 14.3, 20.8, 27.3 and 33.8 Hz
+  // (the Schumann resonances). Moved up `octavesUp` octaves these are audible
+  // pitches, and every click strikes them. mix 0 = clicks only, 1 = ring only.
+  // The real resonance is dull (q about 5). A higher q makes it ring like a
+  // bell, which is a choice, not a measurement.
+  // Try from the address bar: ?ring=1  or  ?ring=0.6&q=80&octaves=6
+  ring: { mix: 0, octavesUp: 5, modesHz: [7.83, 14.3, 20.8, 27.3, 33.8], q: 40 },
+
   // PLACEHOLDER: no effects. Checo is undecided. 0 = off, 1 = fully wet.
-  // Try them from the address bar: ?reverb=0.3&delay=0.2
+  // Try them from the address bar: ?reverb=0.3&delay=0.2  (also ?click=1500 for click colour)
   effects: { reverb: 0, reverbSeconds: 3.5, delay: 0, delaySeconds: 0.36, delayFeedback: 0.35 },
 
   // ---- Listening position -----------------------------------------------

@@ -1,8 +1,9 @@
 // The picture: a radar scope. The Earth is drawn as coastlines only, in a
-// phosphor line. Each flash is a blip that fades. The hand going round is the
-// calendar: one turn is one year, January at the top. The line it draws
-// around the rim is how much lightning the visible side had through that year,
-// which is the waveform you hear when time runs fast enough.
+// phosphor line. Each flash is a blip that fades, and leaves a faint mark, so
+// the map of where lightning lives builds up while you listen. The line around
+// the rim is the calendar: January at the top, clockwise, and its height is how
+// much lightning the visible side had. The bright dot on it is now. At top
+// speed that line is the waveform you hear.
 
 import { project } from './geo.js';
 
@@ -10,16 +11,18 @@ export function makeScope(canvas, cfg) {
   const g = canvas.getContext('2d');
   const base = document.createElement('canvas'), bg = base.getContext('2d');   // coast, rim, ticks
   const phos = document.createElement('canvas'), pg = phos.getContext('2d');   // blips with afterglow
+  const heat = document.createElement('canvas'), hg = heat.getContext('2d');   // where flashes have been
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const P = cfg.phosphor, G = cfg.glow;
   let w = 0, h = 0, dpr = 1, cx = 0, cy = 0, R = 0;
-  let coast = [], lon0 = 0, lat0 = 0, baseDirty = true, focused = false;
+  let coast = [], lon0 = 0, lat0 = 0, baseDirty = true, focused = false, heatDirty = true, heatAge = 0;
 
   function resize() {
     const r = canvas.getBoundingClientRect();
     dpr = Math.min(window.devicePixelRatio || 1, r.width < 900 ? 1.5 : 2);
     w = Math.round(r.width * dpr); h = Math.round(r.height * dpr);
-    for (const c of [canvas, base, phos]) { c.width = w; c.height = h; }
+    for (const c of [canvas, base, phos, heat]) { c.width = w; c.height = h; }
+    heatDirty = true;
     // leave room for the title above and the two control rows below
     const top = 96 * dpr, bottom = 150 * dpr;
     R = Math.max(40, Math.min(w * 0.39, (h - top - bottom) / 2 / 1.26));
@@ -69,8 +72,9 @@ export function makeScope(canvas, cfg) {
   }
 
   // blips: Int32 cell ids; proj: {x,y,z} per cell
-  function frame({ blips, count, proj, yearFrac, showHand, trace, traceAge, running }) {
+  function frame({ blips, count, proj, seen, showMarker, trace, traceAge, running }) {
     if (baseDirty) drawBase();
+    if (seen && (heatDirty || ++heatAge > 45)) drawHeat(seen, proj);
 
     // afterglow
     pg.globalCompositeOperation = 'destination-out';
@@ -95,41 +99,54 @@ export function makeScope(canvas, cfg) {
 
     g.clearRect(0, 0, w, h);
     g.globalCompositeOperation = 'source-over';
+    g.drawImage(heat, 0, 0);
     g.drawImage(base, 0, 0);
     g.globalCompositeOperation = 'lighter';
-
-    // the year hand, with the wedge of light a radar sweep leaves behind it
-    const theta = -Math.PI / 2 + yearFrac * Math.PI * 2;
-    if (showHand && !reduce) {
-      if (g.createConicGradient) {
-        const wedge = 0.11;
-        const cg = g.createConicGradient(theta - wedge * Math.PI * 2, cx, cy);
-        cg.addColorStop(0, `rgba(${G},0)`); cg.addColorStop(wedge, `rgba(${G},0.2)`);
-        cg.addColorStop(wedge + 0.0005, `rgba(${G},0)`); cg.addColorStop(1, `rgba(${G},0)`);
-        g.fillStyle = cg; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
-      }
-      beam(g, 0.85, 1.2, (c) => { c.moveTo(cx, cy); c.lineTo(cx + Math.cos(theta) * R * 1.03, cy + Math.sin(theta) * R * 1.03); });
-    }
 
     // lightning through the year, drawn round the rim
     if (trace) {
       const M = trace.count || trace.length;
-      const pt = (i) => {
-        const a = -Math.PI / 2 + (trace.frac[i]) * Math.PI * 2, r = R * (1.09 + 0.15 * Math.min(1.5, trace[i]));
-        return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
-      };
       const BUCKETS = 5;
       for (let b = 0; b < BUCKETS; b++) {
         const alpha = traceAge ? 0.9 * (1 - b / BUCKETS) ** 1.5 : 0.8;
         beam(g, alpha, 1.2, (c) => {
           const i0 = Math.floor((b / BUCKETS) * (M - 1)), i1 = Math.floor(((b + 1) / BUCKETS) * (M - 1));
-          let p = pt(i0); c.moveTo(p[0], p[1]);
-          for (let i = i0 + 1; i <= i1; i++) { p = pt(i); c.lineTo(p[0], p[1]); }
+          let p = pt(trace, i0); c.moveTo(p[0], p[1]);
+          for (let i = i0 + 1; i <= i1; i++) { p = pt(trace, i); c.lineTo(p[0], p[1]); }
         });
       }
     }
 
+    // now: a bright dot riding the rim line
+    if (trace && showMarker) {
+      const p = pt(trace, 0);
+      g.fillStyle = `rgba(${G},0.35)`; g.beginPath(); g.arc(p[0], p[1], 7 * dpr, 0, Math.PI * 2); g.fill();
+      g.fillStyle = `rgba(${P},1)`; g.beginPath(); g.arc(p[0], p[1], 2.6 * dpr, 0, Math.PI * 2); g.fill();
+    }
+
     g.drawImage(phos, 0, 0);
+  }
+
+  // Faint marks where flashes have been. seen: Float32 count per cell.
+  function drawHeat(seen, proj) {
+    heatDirty = false; heatAge = 0;
+    hg.clearRect(0, 0, w, h);
+    let max = 0;
+    for (let i = 0; i < seen.length; i++) if (seen[i] > max) max = seen[i];
+    if (!max) return;
+    const k = 1 / Math.log(1 + max), size = Math.max(1.2 * dpr, R * 0.011);
+    for (let i = 0; i < seen.length; i++) {
+      const c = seen[i]; if (!c || proj.z[i] <= 0.02) continue;
+      const v = Math.log(1 + c) * k, alpha = 0.42 * v * v * v;     // only the busy places show
+      if (alpha < 0.012) continue;
+      hg.fillStyle = `rgba(${G},${alpha.toFixed(3)})`;
+      hg.fillRect(cx + proj.x[i] * R - size / 2, cy - proj.y[i] * R - size / 2, size, size);
+    }
+  }
+
+  function pt(trace, i) {
+    const a = -Math.PI / 2 + trace.frac[i] * Math.PI * 2, r = R * (1.09 + 0.15 * Math.min(1.5, trace[i]));
+    return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
   }
 
   function hash(n) { n = Math.imul(n ^ (n >>> 15), 0x2c1b3c6d); n = Math.imul(n ^ (n >>> 12), 0x297a2d39); return ((n ^ (n >>> 15)) >>> 0) / 4294967296; }
@@ -138,7 +155,7 @@ export function makeScope(canvas, cfg) {
     resize, frame,
     setCoast(lines) { coast = lines; baseDirty = true; },
     setFocus(on) { focused = on; baseDirty = true; },
-    setView(lon, lat) { lon0 = lon; lat0 = lat; baseDirty = true; pg.clearRect(0, 0, w, h); },
+    setView(lon, lat) { lon0 = lon; lat0 = lat; baseDirty = true; heatDirty = true; pg.clearRect(0, 0, w, h); },
     get radius() { return R / dpr; },
     inside(clientX, clientY) { const r = canvas.getBoundingClientRect(); return Math.hypot((clientX - r.left) * dpr - cx, (clientY - r.top) * dpr - cy) < R * 1.05; },
   };

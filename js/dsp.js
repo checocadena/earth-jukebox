@@ -25,7 +25,27 @@ export class Audifier {
     this.hpL = { x: 0, y: 0 }; this.hpR = { x: 0, y: 0 };
     this.lpL = 0; this.lpR = 0;
     this.seed = 0x9e3779b9;
-    this.ref = { gMean: 0.25, gRms: 0.4 };   // mean and RMS gain of an event at the reference view
+    this.ref = { gMean: 0.25, gRms: 0.4 };
+    this.setRing(cfg.ring);   // mean and RMS gain of an event at the reference view
+  }
+
+  // The ring: lightning makes the cavity between the ground and the upper
+  // atmosphere resonate (the Schumann resonances). Each mode is a band-pass
+  // filter that every click strikes. `gain` makes dense clicks come out as loud
+  // through the ring as without it.
+  setRing(ring) {
+    this.ringMix = ring ? ring.mix : 0;
+    this.modes = [];
+    if (!this.ringMix) return;
+    let power = 0;
+    for (const hz of ring.modesHz) {
+      const f = hz * Math.pow(2, ring.octavesUp);
+      if (f > this.sr * 0.45) continue;
+      const w = 2 * Math.PI * f / this.sr, alpha = Math.sin(w) / (2 * ring.q), a0 = 1 + alpha;
+      this.modes.push({ b: alpha / a0, a1: -2 * Math.cos(w) / a0, a2: (1 - alpha) / a0, l1: 0, l2: 0, r1: 0, r2: 0, lx1: 0, lx2: 0, rx1: 0, rx2: 0 });
+      power += Math.PI * f / (ring.q * this.sr);
+    }
+    this.ringGain = power ? 0.75 / Math.sqrt(power) : 0;
   }
 
   // frameStart: Uint32[F+1], cells: Uint16[E], frameDay: Float32[F+1]
@@ -118,7 +138,8 @@ export class Audifier {
     const grain = c.level.hissInTone ? Math.sqrt(ref.gRms * ref.gRms / ref.gMean) : 0;
     const curveMode = lam > c.curveAboveEventsPerSample;
     const hp = Math.exp(-2 * Math.PI * c.highpassHz / sr);
-    const { frameStart, frameDay, cells, gL, gR, curveL, curveR, cumL, cumR, frames } = this;
+    const { frameStart, frameDay, cells, gL, gR, curveL, curveR, cumL, cumR, frames, modes, ringGain } = this;
+    const mix = this.ringMix;
     let end = this.loopEnd();
     if (this.day >= end) this.seek(0);
     if (curveMode) this.syncTotals();
@@ -160,6 +181,16 @@ export class Audifier {
       // click colour (one-pole low-pass), then remove the slow offset (high-pass)
       this.lpL += lp * (l - this.lpL); this.lpR += lp * (r - this.lpR);
       l = this.lpL; r = this.lpR;
+      if (mix) {
+        let wl = 0, wr = 0;
+        for (let m = 0; m < modes.length; m++) {
+          const q = modes[m];
+          const yl = q.b * (l - q.lx2) - q.a1 * q.l1 - q.a2 * q.l2; q.lx2 = q.lx1; q.lx1 = l; q.l2 = q.l1; q.l1 = yl;
+          const yr = q.b * (r - q.rx2) - q.a1 * q.r1 - q.a2 * q.r2; q.rx2 = q.rx1; q.rx1 = r; q.r2 = q.r1; q.r1 = yr;
+          wl += yl; wr += yr;
+        }
+        l = (1 - mix) * l + mix * ringGain * wl; r = (1 - mix) * r + mix * ringGain * wr;
+      }
       const yl = l - this.hpL.x + hp * this.hpL.y; this.hpL.x = l; this.hpL.y = yl;
       const yr = r - this.hpR.x + hp * this.hpR.y; this.hpR.x = r; this.hpR.y = yr;
       left[s] = soft(yl * c.master); right[s] = soft(yr * c.master);
@@ -184,6 +215,7 @@ if (typeof AudioWorkletProcessor !== 'undefined') {
         const m = e.data, a = this.a;
         if (m.data) a.setData(m.data);
         if (m.view) a.setView(m.view);
+        if (m.ring) a.setRing(m.ring);
         if (m.speed !== undefined) { a.speed = m.speed; a.seek(a.day); }
         if (m.seek !== undefined) a.seek(m.seek);
         if (m.playing !== undefined) { a.playing = m.playing; a.ended = false; }

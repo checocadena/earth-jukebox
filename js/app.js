@@ -7,13 +7,25 @@ import { toWav } from './wav.js';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
-  play: $('play'), wav: $('wav'), info: $('info'), about: $('about'), close: $('close'), globe: $('globe'),
+  play: $('play'), ring: $('ring'), wav: $('wav'), info: $('info'), about: $('about'), close: $('close'), globe: $('globe'),
   time: $('time'), speed: $('speed'), date: $('date'), speedv: $('speedv'),
   live: $('live'), status: $('status'), download: $('download'),
 };
+// Settings can be tried from the address bar without editing config.js.
 const params = new URLSearchParams(location.search);
-const fx = { ...config.effects };
-for (const k of ['reverb', 'delay']) if (params.has(k)) fx[k] = Math.max(0, Math.min(1, Number(params.get(k)) || 0));
+const num = (k, lo, hi) => (params.has(k) && isFinite(Number(params.get(k))) ? Math.max(lo, Math.min(hi, Number(params.get(k)))) : null);
+const settings = JSON.parse(JSON.stringify(config));
+{
+  const set = (v, f) => { if (v !== null) f(v); };
+  set(num('ring', 0, 1), (v) => { settings.ring.mix = v; });
+  set(num('q', 1, 400), (v) => { settings.ring.q = v; });
+  set(num('octaves', 0, 8), (v) => { settings.ring.octavesUp = v; });
+  set(num('click', 200, 20000), (v) => { settings.click.lowpassHz = v; });
+  set(num('reverb', 0, 1), (v) => { settings.effects.reverb = v; });
+  set(num('delay', 0, 1), (v) => { settings.effects.delay = v; });
+  set(num('speed', settings.speed.min, settings.speed.max), (v) => { settings.speed.start = v; });
+}
+const fx = settings.effects;
 
 const scope = makeScope($('scope'), config.scope);
 let ds, data = null;                       // dataset entry, { frameStart, frameDay, cells, frames, endDay }
@@ -21,10 +33,11 @@ let view = { lon: config.view.lon, lat: config.view.lat };
 const proj = { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS) };
 const gL = new Float32Array(CELLS), gR = new Float32Array(CELLS);
 let curveL, curveR, curveRef = 1, meanYear = null;
-let speed = config.speed.start, day = 0, playing = false;
+let speed = settings.speed.start, day = 0, playing = false;
 let ctx = null, node = null;
 let lastDrawDay = 0, curvesTimer = 0, wavUrl = null, lastSaid = 0;
 const blips = new Int32Array(config.scope.maxBlipsPerFrame);
+const seen = new Float32Array(CELLS);        // how many flashes each cell has shown so far
 
 // ---------- loading ----------
 async function load(entry) {
@@ -151,7 +164,7 @@ async function ensureAudio() {
   if (navigator.audioSession) { try { navigator.audioSession.type = 'playback'; } catch {} }
   ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
   await ctx.audioWorklet.addModule('js/dsp.js');
-  node = new AudioWorkletNode(ctx, 'audifier', { numberOfInputs: 0, outputChannelCount: [2], processorOptions: { cfg: JSON.parse(JSON.stringify(config)) } });
+  node = new AudioWorkletNode(ctx, 'audifier', { numberOfInputs: 0, outputChannelCount: [2], processorOptions: { cfg: settings } });
   node.port.onmessage = (e) => {
     day = e.data.day;
     if (e.data.ended) { setPlaying(false); say('End.'); }
@@ -215,6 +228,7 @@ function tick() {
     const n = Math.max(0, i1 - i0), cap = blips.length;
     if (n <= cap) { for (let i = 0; i < n; i++) blips[i] = data.cells[i0 + i]; count = n; }
     else { for (let i = 0; i < cap; i++) blips[i] = data.cells[i0 + Math.floor(Math.random() * n)]; count = cap; }
+    for (let i = 0; i < count; i++) seen[blips[i]]++;
     lastDrawDay = d1;
 
     const now = performance.now();
@@ -233,7 +247,7 @@ function tick() {
     trace.count = m;
     traceAge = true;
   }
-  scope.frame({ blips, count, proj, yearFrac: yearFrac(day), showHand: speed <= 550, trace: trace && (trace.count ?? 2) >= 2 ? trace : null, traceAge, running: playing });
+  scope.frame({ blips, count, proj, seen, showMarker: !fastAll(), trace: trace && (trace.count ?? 2) >= 2 ? trace : null, traceAge, running: playing });
   updateReadouts();
 }
 
@@ -243,7 +257,7 @@ async function makeWav() {
   ui.wav.disabled = true; ui.download.hidden = true;
   try {
     const sr = config.render.sampleRate;
-    const a = new Audifier(sr, config);
+    const a = new Audifier(sr, settings);
     a.setData(data); a.setView({ gL, gR, curveL, curveR });
     a.speed = speed; a.playing = true;
     const pass = data.endDay / speed;                       // seconds for one pass through the data
@@ -275,6 +289,16 @@ async function makeWav() {
 const turn = (dLon, dLat) => { setView(view.lon + dLon, view.lat + dLat); lastSaid = performance.now(); say(`Facing ${placeName(view.lon, view.lat)}.`); };
 ui.play.addEventListener('click', () => setPlaying(!playing));
 ui.wav.addEventListener('click', makeWav);
+// Ring on or off. The amount when on comes from config (or ?ring= in the address).
+const ringOnMix = settings.ring.mix || 1;
+function setRing(on) {
+  settings.ring.mix = on ? ringOnMix : 0;
+  ui.ring.setAttribute('aria-pressed', String(on));
+  node?.port.postMessage({ ring: settings.ring });
+  say(on ? 'Ring on.' : 'Ring off.');
+}
+ui.ring.setAttribute('aria-pressed', String(settings.ring.mix > 0));
+ui.ring.addEventListener('click', () => setRing(settings.ring.mix === 0));
 ui.info.addEventListener('click', () => ui.about.showModal());
 ui.close.addEventListener('click', () => ui.about.close());
 ui.about.addEventListener('click', (e) => { if (e.target === ui.about) ui.about.close(); });
@@ -317,6 +341,7 @@ document.addEventListener('keydown', (e) => {
     Home: () => { seek(0); say(describe()); },
     d: () => say(describe()), D: () => say(describe()),
     w: makeWav, W: makeWav,
+    r: () => setRing(settings.ring.mix === 0), R: () => setRing(settings.ring.mix === 0),
     i: () => ui.about.showModal(), '?': () => ui.about.showModal(),
   }[k];
   if (!act) return;
