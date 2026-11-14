@@ -21,9 +21,12 @@ export function makeScope(canvas, cfg, look, opts = {}) {
   let coast = [], lon0 = 0, lat0 = 0, baseDirty = true, focused = false, heatDirty = true, heatAge = 0, glowLon = 0, glowLat = 0;
 
   function resize() {
-    const r = canvas.getBoundingClientRect();
-    dpr = Math.min(window.devicePixelRatio || 1, r.width < 900 ? 1.5 : 2);
-    w = Math.round(r.width * dpr); h = Math.round(r.height * dpr);
+    if (opts.size) { dpr = 1; w = h = opts.size; }         // a picture of fixed size, not on the page
+    else {
+      const r = canvas.getBoundingClientRect();
+      dpr = Math.min(window.devicePixelRatio || 1, r.width < 900 ? 1.5 : 2);
+      w = Math.round(r.width * dpr); h = Math.round(r.height * dpr);
+    }
     for (const c of [canvas, base, phos, heat]) { c.width = w; c.height = h; }
     heatDirty = true;
     // leave room for the title above and the two control rows below

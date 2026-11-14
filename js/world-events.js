@@ -26,6 +26,10 @@ export async function createEventsWorld(ds, app) {
   let speed = settings.speed.start, day = 0, playing = false, node = null, lastDrawDay = 0;
   const blips = new Int32Array(settings.scope.maxBlipsPerFrame);
   const seen = new Float32Array(CELLS);        // marks left by recent flashes
+  // Before anything has played, the globe shows where lightning falls over the whole record.
+  const total = new Float32Array(CELLS);
+  for (let i = 0; i < cells.length; i += 3) total[cells[i]] += 0.4;
+  seen.set(total);
   const trace = Object.assign(new Float32Array(120), { frac: new Float32Array(120) });
 
   // Levels are set against the starting view, so quiet sides of the Earth stay quiet.
@@ -82,9 +86,10 @@ export async function createEventsWorld(ds, app) {
 
     viewChanged(now) {
       cellGains(app.proj, settings.view.falloff, gL, gR);
-      clearTimeout(curvesTimer);
-      if (now) updateCurves(); else curvesTimer = setTimeout(updateCurves, 90);
-      node?.port.postMessage({ view: viewMsg() });
+      // the per-frame curves are heavy to rebuild: at most a few times a second, fewer when nothing is playing
+      if (now) { clearTimeout(curvesTimer); curvesTimer = 0; updateCurves(); }
+      else if (!curvesTimer) curvesTimer = setTimeout(() => { curvesTimer = 0; updateCurves(); }, playing ? 150 : 700);
+      if (playing || now) node?.port.postMessage({ view: viewMsg() });
     },
 
     start(ctx) {
@@ -94,7 +99,7 @@ export async function createEventsWorld(ds, app) {
       node.port.postMessage({ data: { frameStart: frameStart.slice(), frameDay: frameDay.slice(), cells: cells.slice(), ref }, view: viewMsg(), speed, seek: day });
       return node;
     },
-    setPlaying(on) { playing = on; node?.port.postMessage({ playing: on }); },
+    setPlaying(on) { playing = on; if (on) node?.port.postMessage({ view: viewMsg() }); node?.port.postMessage({ playing: on }); },
     setChord(on) { settings.ring.mix = on ? settings.ring.onMix : 0; node?.port.postMessage({ ring: settings.ring }); },
 
     // speed: days of data per second, on a log slider
@@ -186,12 +191,8 @@ export async function createEventsWorld(ds, app) {
       return { L, R, sr, secs, tag: speedText().replace(/[ /.]+/g, '-') };
     },
 
-    // a still picture for the hub: where the events are, over the whole record
-    preview(scope, proj) {
-      const total = new Float32Array(CELLS);
-      for (let i = 0; i < cells.length; i += 3) total[cells[i]] += 0.4;
-      scope.frame({ blips, count: 0, proj, seen: total });
-    },
+    // the world's small picture, for the menu: the same marks as the big globe
+    preview(scope, proj) { scope.frame({ blips, count: 0, proj, seen }); },
   };
   return world;
 }

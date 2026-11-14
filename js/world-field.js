@@ -201,10 +201,10 @@ export async function createFieldWorld(ds, app) {
       return { L, R, sr, secs, tag: `${Math.round(freq)}-hz` };
     },
 
+    // the world's small picture, for the menu: the same map and lines as the big globe
     preview(scope, proj) {
-      const f = new Float32Array(CELLS);
-      for (let i = 0; i < CELLS; i++) { const u = packed[(S - 1) * CELLS + i] / 255; f[i] = sqrt ? u : shade(u); }
-      scope.frame({ blips: null, count: 0, proj, field: f });
+      scope.touch();
+      scope.frame({ blips: null, count: 0, proj, field, skylines: lines.map((ln) => ({ lat: ln.lat, values: ln.sky, lift: ds.lift || 5, level: ln.level })) });
     },
   };
   update(true);

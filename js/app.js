@@ -5,11 +5,12 @@ import { CELLS, projectCells, shiftCells, placeName } from './geo.js';
 import { createEventsWorld } from './world-events.js';
 import { createFieldWorld } from './world-field.js';
 import { toWav } from './wav.js';
-import { playIntro } from './intro.js';
+import { makeScene } from './scene.js';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
-  hub: $('hub'), player: $('player'), home: $('home'), tabs: $('tabs'), nasa: $('nasa'), header: document.querySelector('header'),
+  hub: $('hub'), player: $('player'), home: $('home'), tabs: $('tabs'), nasa: $('nasa'), header: document.querySelector('header'), start: $('start'),
+  sceneCanvas: $('scene'), scopeCanvas: $('scope'),
   play: $('play'), ring: $('ring'), wav: $('wav'), info: $('info'), about: $('about'), close: $('close'), globe: $('globe'),
   time: $('time'), speed: $('speed'), date: $('date'), speedv: $('speedv'),
   live: $('live'), status: $('status'), download: $('download'),
@@ -36,9 +37,10 @@ document.documentElement.style.setProperty('--accent', look.accent);
 document.documentElement.style.setProperty('--glow', `rgb(${look.dataGlow})`);
 
 // What every world shares: the scope, the side of the Earth facing the listener, the voice.
+const TOP = 104, BOTTOM = 150, FILL = 0.39;     // room kept for the header and the controls, in CSS pixels
 const app = {
   settings,
-  scope: makeScope($('scope'), settings.scope, look, { top: 104 }),
+  scope: makeScope(ui.scopeCanvas, settings.scope, look, { top: TOP, bottom: BOTTOM, fill: FILL }),
   view: { lon: settings.view.lon, lat: settings.view.lat },
   proj: { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS) },
   // positions of every cell for a view at the current tilt, turned to `lon` (whole degrees)
@@ -48,118 +50,129 @@ const app = {
 // Cell positions for the current tilt with longitude 0 facing; turning the globe only shifts them sideways.
 const base = { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS), lat: null };
 const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
-let spinHold = 0, shownLon = null;
-const worlds = new Map();          // id -> promise of a loaded world
-let ds = null, world = null, playing = false, coast = null;
+let spinHold = 0, spinOn = !REDUCE, shownLon = null;
+let ds = null, world = null, playing = false, coast = null, scene = null;
 let ctx = null, out = null, wavUrl = null, lastSaid = 0, lastFrame = 0;
 
 function say(text) { ui.live.textContent = ''; setTimeout(() => { ui.live.textContent = text; }, 40); lastSaid = performance.now(); }
 
-// ---------- hub: the menu of turning worlds ----------
-const minis = [];                  // { d, button, canvas, scope, base, proj, lon, world }
-let entry = null;                  // the view a world should open with, when entered from the menu
+// ---------- the worlds ----------
+// Each world keeps its own turning globe for its whole life: a small picture of it is what
+// the menu shows, and the same longitude is what the big globe opens on. Nothing reloads.
+const planets = [];                // { d, canvas, scope, base, proj, lon, lat, world, button }
+const PIC = 512;                   // size of a world's small picture, in pixels
 
-async function buildHub() {
+async function build() {
   coast = await fetch('data/coast.json').then((r) => r.json());
   app.scope.setCoast(coast);
   datasets.forEach((d, i) => {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'world';
-    const c = document.createElement('canvas'); c.setAttribute('aria-hidden', 'true');
-    const s = document.createElement('span'); s.textContent = d.title;
-    b.append(c, s);
-    ui.hub.append(b);
-    const m = {
-      d, button: b, canvas: c, world: null, lon: d.view.lon - 40 + i * 25, sized: 0,
-      scope: makeScope(c, settings.scope, look, { top: 0, bottom: 0, ticks: false, fill: 0.47, lazyMarks: true }),
-      base: { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS) },
+    const canvas = document.createElement('canvas');
+    const p = {
+      d, canvas, world: null, lon: d.view.lon - 30 + i * 20, lat: d.view.lat,
+      scope: makeScope(canvas, settings.scope, look, { size: PIC, top: 0, bottom: 0, ticks: false, fill: 0.47, lazyMarks: true }),
+      base: { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS), lat: null },
       proj: { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS) },
     };
-    projectCells(0, d.view.lat, m.base);
-    m.scope.setCoast(coast);
-    minis.push(m);
-    b.addEventListener('click', () => enter(m));
-    load(d).then((w) => { m.world = w; }).catch((e) => { ui.status.textContent = `Could not load ${d.title}: ${e.message}`; });
-    // the same worlds as tabs, for moving between them once inside one
+    p.scope.resize(); p.scope.setCoast(coast);
+    // the world as something to choose: a round button that follows it, and its name underneath
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'world';
+    const s = document.createElement('span'); s.textContent = d.title;
+    b.append(s);
+    b.addEventListener('click', () => { location.hash = d.id; });
+    ui.hub.append(b);
+    p.button = b;
+    planets.push(p);
+    p.loading = (d.kind === 'events' ? createEventsWorld : createFieldWorld)(d, app);
+    p.loading.then((w) => { p.world = w; }).catch((e) => { ui.status.textContent = `Could not load ${d.title}: ${e.message}`; });
+    // and as a tab, for flying from one world to another
     const t = document.createElement('button');
     t.type = 'button'; t.className = 'tab'; t.textContent = d.title;
-    t.addEventListener('click', () => go(d.id));
+    t.addEventListener('click', () => { location.hash = d.id; });
     ui.tabs.append(t);
   });
+  scene = makeScene({ canvas: ui.sceneCanvas, look, title: project.title, planets, landing, still: REDUCE });
 }
 
-// Every world in the menu turns slowly.
-function drawMinis(dt) {
-  for (const m of minis) {
-    const width = m.canvas.clientWidth;
-    if (!width) continue;
-    if (width !== m.sized) { m.sized = width; m.scope.resize(); }
-    if (!REDUCE) m.lon += dt * 14;
-    m.scope.setView(m.lon, m.d.view.lat);
-    shiftCells(m.base, m.lon, m.proj);
-    if (m.world) m.world.preview(m.scope, m.proj); else m.scope.frame({ blips: null, count: 0, proj: m.proj });
+// Where world i's big globe sits on screen (the same sum the scope does), in CSS pixels.
+function landing(i) {
+  const ticks = planets[i].d.kind === 'events', W = innerWidth, H = innerHeight;
+  return { x: W / 2, y: TOP + (H - TOP - BOTTOM) / 2, r: Math.max(20, Math.min(W * FILL, (H - TOP - BOTTOM) / 2 / (ticks ? 1.26 : 1.04))) };
+}
+const planetOf = (d) => planets.find((p) => p.d === d);
+
+// Draw each world's small picture, turned to where it is now.
+function drawPictures() {
+  for (const p of planets) {
+    if (p.base.lat !== p.lat) { projectCells(0, p.lat, p.base); p.base.lat = p.lat; }
+    p.scope.setView(p.lon, p.lat);
+    shiftCells(p.base, p.lon, p.proj);
+    if (p.world) p.world.preview(p.scope, p.proj); else p.scope.frame({ blips: null, count: 0, proj: p.proj });
   }
 }
 
-// Fly into a world: its globe grows until it sits where the big one will be.
-function enter(m) {
-  if (ui.hub.classList.contains('leaving')) return;
-  entry = { id: m.d.id, lon: m.lon };
-  if (REDUCE) { go(m.d.id); return; }
-  const r = m.canvas.getBoundingClientRect(), W = innerWidth, H = innerHeight;
-  const ticks = m.d.kind === 'events', top = 104, bottom = 150;
-  const R = Math.max(20, Math.min(W * 0.39, (H - top - bottom) / 2 / (ticks ? 1.26 : 1.04))), cy = top + (H - top - bottom) / 2;
-  const k = R / (r.width * 0.47);
-  m.button.classList.add('entering'); ui.hub.classList.add('leaving'); ui.header.style.opacity = '0';
-  m.canvas.style.transform = `translate(${W / 2 - (r.left + r.width / 2)}px, ${cy - (r.top + r.height / 2)}px) scale(${k})`;
-  setTimeout(() => go(m.d.id), 760);
-}
-function leaveHubStyles() {
-  ui.hub.classList.remove('leaving'); ui.header.style.opacity = '';
-  for (const m of minis) { m.button.classList.remove('entering'); m.canvas.style.transform = ''; }
-}
-const go = (id) => { if (location.hash.slice(1) === id) route(); else location.hash = id; };
-
-function load(d) {
-  if (!worlds.has(d.id)) worlds.set(d.id, (d.kind === 'events' ? createEventsWorld : createFieldWorld)(d, app));
-  return worlds.get(d.id);
-}
-
-async function route() {
-  const d = datasets.find((x) => x.id === location.hash.slice(1));
-  const keepPlaying = playing && !!d;                     // moving between worlds: the music carries on
+// ---------- getting about ----------
+// The address says where we are: nothing after # is the menu, #lightning is a world.
+// Going anywhere is a camera move, never a cut.
+async function route(first) {
+  const d = datasets.find((x) => x.id === location.hash.slice(1)) || null;
+  if (d === ds && !first) return;
+  const from = ds, keepPlaying = playing && !!d;          // moving between worlds: the sound carries on in the next one
   await setPlaying(false);
-  world = null; ds = d || null;
-  document.body.classList.toggle('in-hub', !d);
-  document.body.classList.toggle('in-world', !!d);
-  ui.hub.hidden = !!d; ui.player.hidden = !d; ui.wav.hidden = !d; ui.tabs.hidden = !d; ui.download.hidden = true; ui.status.textContent = '';
-  ui.ring.hidden = !(d && d.kind === 'events');
-  ui.nasa.hidden = !(d && d.video);
-  leaveHubStyles();
+  ds = d; world = null;
+  showNasa(false);
+  ui.download.hidden = true; ui.status.textContent = '';
   [...ui.tabs.children].forEach((t, i) => t.setAttribute('aria-current', String(datasets[i] === d)));
   document.title = d ? `${d.title} · ${project.title}` : project.title;
-  showNasa(false);
-  if (!d) { entry = null; say(`${project.title}. ${datasets.length} worlds: ${datasets.map((x) => x.title).join(', ')}.`); return; }
+  ui.ring.hidden = !(d && d.kind === 'events'); ui.nasa.hidden = !(d && d.video); ui.wav.hidden = !d; ui.tabs.hidden = !d;
+  document.body.classList.toggle('in-world', !!d);
+  document.body.classList.toggle('in-menu', !d);
+
+  if (!d) {                                               // out to the menu
+    const arrive = () => { say(`${project.title}. ${datasets.length} worlds: ${datasets.map((x) => x.title).join(', ')}.`); (from ? planetOf(from) : planets[0]).button.focus({ preventScroll: true }); };
+    if (first) { scene.set({ mode: 'attract' }); attract(); } else scene.go({ mode: 'menu' }, 1.1, arrive);
+    return;
+  }
+  const p = planetOf(d), i = planets.indexOf(p);
   $('intro').textContent = `${d.about} Space plays and pauses. Left and right arrows turn the globe, shift with up and down tilts it. ` +
-    `Up and down arrows: ${d.speedKeys.toLowerCase()}. Comma and full stop: ${d.timeKeys.toLowerCase()}. Square brackets move to the next or previous world. ` +
-    'D says what is playing. W makes a WAV file. Escape goes back to the menu.';
-  const w = await load(d);
+    `Up and down arrows: ${d.speedKeys.toLowerCase()}. Comma and full stop: ${d.timeKeys.toLowerCase()}. Square brackets fly to the next or previous world. ` +
+    'D says what is playing. W makes a WAV file. S stops or starts the turning. Escape goes back to the menu.';
+  const arrive = () => {
+    ui.globe.focus({ preventScroll: true });
+    if (keepPlaying) setPlaying(true); else say(`${d.title}. ${d.about} Press space to play.`);
+  };
+  if (first) scene.set({ mode: 'world', i });
+  else scene.go({ mode: 'world', i }, from ? 1.7 : 1.3, arrive, from ? { mode: 'menu' } : undefined);   // world to world: out, across, in
+  const w = await p.loading;
   if (ds !== d) return;                                   // left again while loading
   world = w;
   app.scope.setTicks(d.kind === 'events');               // month ticks only where the rim is a calendar
   app.scope.resize(); app.scope.clear();
-  setView(entry && entry.id === d.id ? entry.lon : d.view.lon, d.view.lat, true);
-  entry = null;
+  shownLon = null; setView(p.lon, p.lat, true);
   ui.ring.setAttribute('aria-pressed', String(settings.ring.mix > 0));
   readouts(true);
-  ui.globe.focus({ preventScroll: true });
-  if (keepPlaying) setPlaying(true); else say(`${d.title}. ${d.about} Press space to play.`);
+  if (first) arrive();
+}
+
+// The machine, seen from a child's height, waiting for a tap.
+function attract() {
+  ui.start.hidden = false; ui.start.focus({ preventScroll: true });
+  const begin = () => {
+    if (ui.start.hidden) return;
+    ui.start.hidden = true;
+    removeEventListener('keydown', key, true); removeEventListener('pointerdown', begin, true);
+    scene.go({ mode: 'menu' }, 3.4, () => { say(`${project.title}. ${datasets.length} worlds: ${datasets.map((x) => x.title).join(', ')}.`); planets[0].button.focus({ preventScroll: true }); });
+  };
+  const key = (e) => { if (!['Shift', 'Control', 'Alt', 'Meta', 'Tab'].includes(e.key)) { e.preventDefault(); begin(); } };
+  addEventListener('keydown', key, true); addEventListener('pointerdown', begin, true);
 }
 
 // ---------- view ----------
 function setView(lon, lat, now) {
   app.view.lon = ((lon + 540) % 360) - 180;
   app.view.lat = Math.max(-70, Math.min(70, lat));
+  const p = ds && planetOf(ds);
+  if (p) { p.lon = app.view.lon; p.lat = app.view.lat; }  // the world's own picture turns with it
   app.scope.setView(app.view.lon, app.view.lat);          // the coastline turns smoothly
   const whole = Math.round(app.view.lon);
   if (base.lat !== app.view.lat) { projectCells(0, app.view.lat, base); base.lat = app.view.lat; shownLon = null; }
@@ -224,16 +237,59 @@ function readouts(force) {
   ui.speed.setAttribute('aria-valuetext', world.speedText(true));
 }
 
+const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+let shownMode = '';
+
 function tick(now) {
   requestAnimationFrame(tick);
   const dt = Math.min(0.1, (now - lastFrame) / 1000 || 0); lastFrame = now;
-  if (!world) { drawMinis(dt); return; }
-  // the Earth turns by itself while playing, unless a hand is on it
-  if (playing && !REDUCE && !drag && now > spinHold) setView(app.view.lon + (dt * 360) / settings.spin.secondsPerTurn, app.view.lat);
+  const active = ds && planetOf(ds), moving = scene.moving;
+
+  // every world turns, all the time, unless a hand is on it
+  if (spinOn) for (const p of planets) if (p !== active || (!drag && now > spinHold)) p.lon = ((p.lon + (dt * 360) / settings.spin.secondsPerTurn + 540) % 360) - 180;
+  if (active && world) setView(active.lon, active.lat);
+
+  // How much of the picture is the 3D scene, and how much the big globe. They show the same
+  // world in the same place, so one fades into the other at the end of a flight in.
+  let sceneAlpha = scene.mode === 'world' && !moving ? 0 : 1;
+  if (sceneAlpha) {
+    drawPictures();
+    const s = scene.frame(dt);
+    if (s.moving && s.moving.to.mode === 'world') sceneAlpha = 1 - smooth((s.moving.k - 0.78) / 0.22);
+    placeButtons(s);
+  }
+  const worldAlpha = world ? 1 - sceneAlpha : 0;
+  ui.sceneCanvas.style.opacity = String(sceneAlpha);
+  ui.scopeCanvas.style.opacity = String(worldAlpha);
+  ui.player.style.opacity = String(worldAlpha); ui.tabs.style.opacity = String(ds ? Math.max(worldAlpha, 0.35) : 0);
+  const mode = moving ? 'moving' : scene.mode;
+  if (mode !== shownMode) {                               // only the place we are in can be touched
+    shownMode = mode;
+    ui.player.hidden = mode !== 'world'; ui.hub.hidden = mode !== 'menu';
+    ui.header.hidden = scene.mode === 'attract' && !moving;
+    document.body.dataset.place = mode;
+  }
+
+  if (!world) return;
   world.frame(dt);
   syncNasa(now);
   readouts(false);
   if (playing && now - lastSaid > settings.describeEverySeconds * 1000) say(world.describe());
+}
+
+// Keep each world's button over it as it goes round.
+function placeButtons(s) {
+  if (s.mode !== 'menu' || s.moving) return;
+  const rs = s.spots.filter(Boolean).map((q) => q.r), lo = Math.min(...rs), hi = Math.max(...rs);
+  planets.forEach((p, i) => {
+    const q = s.spots[i], b = p.button;
+    if (!q) { b.style.display = 'none'; return; }
+    b.style.display = '';
+    b.style.width = b.style.height = `${q.r * 2}px`;
+    b.style.transform = `translate(${q.x - q.r}px, ${q.y - q.r}px)`;
+    b.style.zIndex = String(Math.round(q.r));            // the nearest world is on top
+    b.firstChild.style.opacity = String(hi > lo ? 0.4 + 0.6 * ((q.r - lo) / (hi - lo)) : 1);
+  });
 }
 
 // ---------- WAV ----------
@@ -271,7 +327,7 @@ function showInfo() {
     keys.hidden = false;
     const rows = [['Space', 'Play or pause'], ['← →', 'Turn the globe'], ['Shift ↑ ↓', 'Tilt the globe'], ['↑ ↓', d.speedKeys], [', .', d.timeKeys]];
     if (d.kind === 'events') rows.push(['C', 'Chord on or off']);
-    rows.push(['[ ]', 'Previous or next world'], ['N', "Show NASA's own animation"], ['D', 'Say what is playing'], ['W', 'Make a WAV file'], ['Esc', 'Back to the menu']);
+    rows.push(['[ ]', 'Previous or next world'], ['N', "Show NASA's own animation"], ['S', 'Stop or start the turning'], ['D', 'Say what is playing'], ['W', 'Make a WAV file'], ['Esc', 'Back to the menu']);
     for (const [k, v] of rows) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; keys.append(dt, dd); }
     $('credit').textContent = `${d.credit} Source: ${d.sourceTitle}, ${d.sourceUrl}. ${d.note}`;
   }
@@ -284,28 +340,12 @@ function setChord(on) {
   ui.ring.setAttribute('aria-pressed', String(on));
   say(on ? 'Chord on.' : 'Chord off.');
 }
-const goHome = () => { if (location.hash) location.hash = ''; else runIntro(false); };   // in the menu, the title plays the way in again
-
-// The way in. On arrival it waits for a tap or key; with reduced motion it shows the machine and cuts to the menu.
-let introOn = false;
-function runIntro(wait) {
-  if (introOn) return;
-  introOn = true;
-  const start = $('start'), behind = [ui.hub, ui.header];
-  ui.hub.style.opacity = '0'; ui.header.style.opacity = '0';
-  behind.forEach((e) => { e.inert = wait; });
-  start.hidden = !wait;
-  if (wait) start.focus({ preventScroll: true });
-  const begun = () => { start.hidden = true; behind.forEach((e) => { e.inert = false; }); };
-  playIntro({
-    canvas: $('cabinet'), look, title: project.title, wait, still: REDUCE,
-    planets: minis.map((m) => ({ canvas: m.canvas, rect: () => m.canvas.getBoundingClientRect() })),
-    onStart: begun,
-    onFade: (k) => { ui.hub.style.opacity = String(k); ui.header.style.opacity = String(k); },
-    onDone: () => { begun(); ui.hub.style.opacity = ''; ui.header.style.opacity = ''; introOn = false; minis[0]?.button.focus({ preventScroll: true }); },
-  });
-}
-const hop = (n) => { const i = datasets.indexOf(ds); if (i >= 0) go(datasets[(i + n + datasets.length) % datasets.length].id); };
+// The title: from a world it goes back to the menu; in the menu it steps back from the machine and in again.
+const goHome = () => {
+  if (location.hash) { location.hash = ''; return; }
+  if (scene.mode === 'menu' && !scene.moving) scene.go({ mode: 'attract' }, 1.6, () => scene.go({ mode: 'menu' }, 3.0));
+};
+const hop = (n) => { const i = datasets.indexOf(ds); if (i >= 0) location.hash = datasets[(i + n + datasets.length) % datasets.length].id; };
 
 // NASA's own picture, beside ours, kept at the same moment as the sound.
 const frame = $('frame'), vid = $('nasavid');
@@ -362,13 +402,14 @@ document.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey || ui.about.open) return;
   const tag = e.target.tagName, k = e.key;
   if (k === 'i' || k === '?') { e.preventDefault(); showInfo(); return; }
-  if (!world) return;
+  if (!world || scene.moving) return;
   if (k === 'Escape') { e.preventDefault(); goHome(); return; }
   if (tag === 'INPUT') return;                               // sliders keep their own arrow keys
   const step = settings.view.stepDegrees;
   const chord = () => world.hasChord && setChord(ui.ring.getAttribute('aria-pressed') !== 'true');
   const speed = (n) => { world.nudgeSpeed(n); readouts(true); say(world.speedAnnounce()); };
   const time = (n) => { world.stepTime(n); readouts(true); say(world.describe()); };
+  const spin = () => { spinOn = !spinOn; say(spinOn ? 'The Earth is turning.' : 'The Earth has stopped turning.'); };
   const act = {
     ' ': tag === 'BUTTON' || tag === 'A' ? null : () => setPlaying(!playing),
     ArrowLeft: () => turn(-step, 0), ArrowRight: () => turn(step, 0),
@@ -377,7 +418,7 @@ document.addEventListener('keydown', (e) => {
     ',': () => time(-1), '.': () => time(1),
     Home: () => { world.timeSlider = 0; readouts(true); say(world.describe()); },
     d: () => say(world.describe()), D: () => say(world.describe()),
-    w: makeWav, W: makeWav, c: chord, C: chord,
+    w: makeWav, W: makeWav, c: chord, C: chord, s: spin, S: spin,
     '[': () => hop(-1), ']': () => hop(1), n: () => showNasa(!nasaOn), N: () => showNasa(!nasaOn),
   }[k];
   if (!act) return;
@@ -385,10 +426,7 @@ document.addEventListener('keydown', (e) => {
   act();
 });
 
-window.addEventListener('resize', () => { app.scope.resize(); app.scope.touch(); });
-window.addEventListener('hashchange', route);
+window.addEventListener('resize', () => { app.scope.resize(); app.scope.touch(); scene.resize(); });
+window.addEventListener('hashchange', () => route(false));
 app.scope.resize();
-buildHub().then(route).then(() => {
-  requestAnimationFrame(tick);
-  if (!ds && !params.has('nointro')) runIntro(true);
-}).catch((e) => { ui.status.textContent = 'Could not load: ' + e.message; });
+build().then(() => route(true)).then(() => requestAnimationFrame(tick)).catch((e) => { ui.status.textContent = 'Could not load: ' + e.message; });

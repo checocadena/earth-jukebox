@@ -25,7 +25,7 @@ body {
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-#scope { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; }
+#scope { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; z-index: 0; }
 
 header { position: fixed; inset: 0 0 auto 0; z-index: 2; padding: max(16px, env(safe-area-inset-top)) 16px 0; pointer-events: none; }
 header .bar { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
@@ -45,7 +45,6 @@ header nav { display: flex; gap: 8px; }
   font: 800 22px/1 var(--display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); padding: 14px 20px; animation: blink 1.2s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0.25; } }
 @media (prefers-reduced-motion: reduce) { .start { animation: none; } }
-#cabinet { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 5; display: block; background: #000; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 9px 16px;
   border: 1px solid var(--line); color: var(--ink); background: rgb(0 0 0 / 0.5);
@@ -88,25 +87,18 @@ input[type="range"]::-moz-range-thumb { width: 3px; height: 22px; background: va
 .frame a { color: var(--dim); text-decoration: none; }
 @media (max-width: 900px) { .frame { left: 50%; transform: translateX(-50%); top: 122px; bottom: auto; width: min(62vw, 300px); } .frame figcaption { display: none; } }
 
-/* Hub: one small globe per world */
-.in-hub #scope { display: none; }
-.in-hub .label { font: 900 clamp(44px, 7vw, 92px)/0.95 var(--display); letter-spacing: 0.005em; color: #fff; cursor: default; white-space: normal; text-align: left; }
-.hub, .in-hub header { transition: opacity 0.3s; }
-.world canvas { transition: none; transform-origin: 50% 50%; }
-.world.entering { z-index: 4; position: relative; }
-.world.entering canvas { transition: transform 0.75s cubic-bezier(0.6, 0, 0.2, 1); }
-.hub.leaving .world:not(.entering), .hub.leaving .world span { opacity: 0; transition: opacity 0.35s; }
-.world:focus-visible { outline-offset: 6px; }
-.world:focus-visible span, .world:hover span { color: var(--accent); }
-.hub {
-  position: fixed; inset: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: clamp(12px, 4vw, 56px);
-  align-items: center; align-content: center; justify-content: center; padding: 120px 16px 40px; overflow: auto;
-}
-.world { display: grid; justify-items: center; gap: 6px; background: none; border: 0; padding: 8px; color: #fff; cursor: pointer; }
-.world canvas { width: min(40vw, 46vh, 320px); aspect-ratio: 1; display: block; }
-.world span { font: 800 clamp(22px, 3vw, 34px)/1 var(--display); letter-spacing: 0.02em; text-transform: uppercase; }
-@media (hover: hover) { .world:hover span { color: var(--accent); } }
-@media (max-width: 520px) { .world canvas { width: min(62vw, 30vh); } .hub { padding-top: 96px; } }
+/* The 3D scene (machine, menu, flights) and the worlds to choose in it */
+#scene { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 1; display: block; pointer-events: none; }
+.hub { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
+.world { position: absolute; left: 0; top: 0; border-radius: 50%; background: none; border: 0; padding: 0; color: #fff; cursor: pointer; pointer-events: auto; }
+.world span { position: absolute; left: 50%; top: calc(100% + 8px); transform: translateX(-50%); white-space: nowrap;
+  font: 800 clamp(17px, 2.2vw, 26px)/1 var(--display); letter-spacing: 0.03em; text-transform: uppercase; }
+.world:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.world:focus-visible span { color: var(--accent); opacity: 1 !important; }
+@media (hover: hover) { .world:hover span { color: var(--accent); opacity: 1 !important; } }
+/* in the menu the sign on the machine carries the name */
+.in-menu h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.in-menu header .bar { justify-content: flex-end; }
 
 dialog {
   margin: auto; width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px;
