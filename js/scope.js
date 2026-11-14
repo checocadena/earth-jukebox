@@ -9,7 +9,8 @@ import { project } from './geo.js';
 
 export function makeScope(canvas, cfg, look, opts = {}) {
   const { top = 96, bottom = 150, fill = 0.39 } = opts;
-  let ticks = opts.ticks !== false;   // CSS px kept clear above and below
+  let ticks = opts.ticks !== false;
+  const lazy = !!opts.lazyMarks;       // small turning globes: the marks need not follow every frame   // CSS px kept clear above and below
   const g = canvas.getContext('2d');
   const base = document.createElement('canvas'), bg = base.getContext('2d');   // coast, rim, ticks
   const phos = document.createElement('canvas'), pg = phos.getContext('2d');   // blips with afterglow
@@ -191,11 +192,12 @@ export function makeScope(canvas, cfg, look, opts = {}) {
     // A slow turn keeps the afterglow; a jump clears it (it would be in the wrong place).
     setView(lon, lat) {
       const jump = Math.abs(((lon - glowLon + 540) % 360) - 180) > 4 || Math.abs(lat - glowLat) > 4;
-      lon0 = lon; lat0 = lat; baseDirty = true; heatDirty = true;
+      lon0 = lon; lat0 = lat; baseDirty = true; if (!lazy) heatDirty = true;
       if (jump) { pg.clearRect(0, 0, w, h); glowLon = lon; glowLat = lat; }
       else { glowLon += (((lon - glowLon + 540) % 360) - 180) * 0.2; glowLat += (lat - glowLat) * 0.2; }
     },
     get radius() { return R / dpr; },
+    get lon() { return lon0; },
     inside(clientX, clientY) { const r = canvas.getBoundingClientRect(); return Math.hypot((clientX - r.left) * dpr - cx, (clientY - r.top) * dpr - cy) < R * 1.05; },
   };
 }

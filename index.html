@@ -15,14 +15,19 @@
 </head>
 <body>
 <canvas id="scope" aria-hidden="true"></canvas>
+<canvas id="cabinet" aria-hidden="true" hidden></canvas>
 
 <header>
-  <h1 id="heading"><button id="home" type="button" class="label" aria-label="Earth Jukebox. Back to all worlds.">Earth Jukebox</button><span id="title" class="title"></span></h1>
-  <nav>
-    <button id="ring" type="button" class="btn" aria-pressed="false" hidden>Chord</button>
-    <button id="wav" type="button" class="btn" hidden>WAV</button>
-    <button id="info" type="button" class="btn" aria-haspopup="dialog">Info</button>
-  </nav>
+  <div class="bar">
+    <h1 id="heading"><button id="home" type="button" class="label" aria-label="Earth Jukebox. Back to the menu.">Earth Jukebox</button></h1>
+    <nav aria-label="Tools">
+      <button id="ring" type="button" class="btn" aria-pressed="false" hidden>Chord</button>
+      <button id="nasa" type="button" class="btn" aria-pressed="false" hidden>NASA</button>
+      <button id="wav" type="button" class="btn" hidden>WAV</button>
+      <button id="info" type="button" class="btn" aria-haspopup="dialog">Info</button>
+    </nav>
+  </div>
+  <nav id="tabs" class="tabs" aria-label="Worlds" hidden></nav>
 </header>
 
 <main id="hub" class="hub" aria-label="Worlds"></main>
@@ -39,6 +44,10 @@
   </div>
   <a id="download" class="btn download" hidden></a>
 </main>
+<figure id="frame" class="frame" hidden>
+  <video id="nasavid" muted playsinline preload="auto" aria-label="NASA's original animation, at the same moment"></video>
+  <figcaption><a id="framesrc" href="#" target="_blank" rel="noopener"></a></figcaption>
+</figure>
 <p id="status" class="status" role="status"></p>
 
 <div id="live" class="sr-only" aria-live="polite" aria-atomic="true"></div>

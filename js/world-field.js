@@ -17,6 +17,7 @@ export async function createFieldWorld(ds, app) {
   const packed = new Uint8Array(bin, 4 + hl);              // S maps of CELLS, one byte per cell
   const sqrt = head.encoding === 'sqrt', gaps = head.nodata === 0;   // gaps: 0 means "no data here" (land, for the ocean)
   const rate = ds.stepsPerSecond || cfg.stepsPerSecond;
+  const vframes = ds.video && (ds.video.frames || head.frames);   // NASA's frame for each step
 
   // value 0..1 at step position t (between maps y0 and y1); -1 where there is no data
   const value = (y0, y1, t, i) => {
@@ -25,6 +26,10 @@ export async function createFieldWorld(ds, app) {
     const u = (a + (b - a) * t) / 255;
     return sqrt ? u * u : u;
   };
+
+  // Smooth data would paint the whole map solid. Only the upper part of the range is
+  // drawn, growing quickly, so warm water glows and cool water stays black.
+  const shade = (u) => { const k = Math.max(0, (u - 0.45) / 0.55); return 0.75 * k * k; };
 
   const lines = cfg.linesDegrees.map((lat) => {
     const c = Math.round(89.5 - lat), rows = [];
@@ -67,15 +72,18 @@ export async function createFieldWorld(ds, app) {
   function tables(proj, p, target) {
     const y0 = Math.min(S - 1, Math.floor(p)), y1 = Math.min(S - 1, y0 + 1), t = p - y0;
     for (const ln of lines) {
-      readLine(ln, y0, y1, t, ln.wave);
+      const mean = readLine(ln, y0, y1, t, ln.wave);
       const first = target ? null : (readLine(ln, 0, 0, 0, tmp), tmp);
+      // Smooth data such as temperature: what counts is how each point differs from the
+      // rest of its line, so the line's average is taken away before anything else.
+      const off = ds.anomaly ? mean : 0;
       // heard where it is: near side loud, far side faint, left to right across the ears
       let mL = 0, mR = 0, facing = 0, facingFirst = 0;
       for (let col = 0; col < COLS; col++) {
         const i = ln.row * COLS + col, z = proj.z[i];
         const near = z > 0 ? Math.pow(z, settings.view.falloff || 1) : 0;
         const w = cfg.backLevel + (1 - cfg.backLevel) * near, a = ((proj.x[i] + 1) * Math.PI) / 4;
-        ln.L[col] = ln.wave[col] * w * Math.cos(a); ln.R[col] = ln.wave[col] * w * Math.sin(a);
+        ln.L[col] = (ln.wave[col] - off) * w * Math.cos(a); ln.R[col] = (ln.wave[col] - off) * w * Math.sin(a);
         mL += ln.L[col]; mR += ln.R[col];
         facing += ln.wave[col] * near; if (first) facingFirst += first[col] * near;
       }
@@ -98,12 +106,18 @@ export async function createFieldWorld(ds, app) {
       const y0 = Math.min(S - 1, Math.floor(p)), y1 = Math.min(S - 1, y0 + 1), t = p - y0;
       for (let i = 0; i < CELLS; i++) {
         const a = packed[y0 * CELLS + i], b = packed[y1 * CELLS + i];
-        field[i] = gaps && (a === 0 || b === 0) ? 0 : (a + (b - a) * t) / 255;
+        const u = gaps && (a === 0 || b === 0) ? 0 : (a + (b - a) * t) / 255;
+        field[i] = sqrt ? u : shade(u);
       }
     }
     app.scope.touch();
     const list = tables(app.proj, p);
-    for (const ln of lines) for (let c = 0; c < COLS; c++) ln.sky[c] = Math.min(1.4, sqrt ? Math.sqrt(ln.wave[c] / top) : ln.wave[c] / top);
+    for (const ln of lines) {
+      if (sqrt) { for (let c = 0; c < COLS; c++) ln.sky[c] = Math.min(1.4, Math.sqrt(ln.wave[c] / top)); continue; }
+      // smooth data (temperature): draw how far each point is from the line's own average, enlarged
+      let mean = 0; for (let c = 0; c < COLS; c++) mean += ln.wave[c]; mean /= COLS;
+      for (let c = 0; c < COLS; c++) ln.sky[c] = Math.max(-1, Math.min(1.4, ((ln.wave[c] - mean) / top) * 5));
+    }
     const now = performance.now();
     if (node && (force || now - lastPost > cfg.crossfadeSeconds * 1000)) { lastPost = now; node.port.postMessage({ tables: list }); }
   }
@@ -138,6 +152,12 @@ export async function createFieldWorld(ds, app) {
     stepTime(dir) { pos = Math.max(0, Math.min(S - 1, Math.round(Math.min(S - 1, pos)) + dir)); update(true); },
     timeText: label,
     timeAria: label,
+    // where NASA's own animation is at this moment, in seconds
+    videoTime() {
+      if (!vframes) return 0;
+      const p = Math.min(S - 1, pos), y0 = Math.floor(p), y1 = Math.min(S - 1, y0 + 1);
+      return (vframes[y0] + (vframes[y1] - vframes[y0]) * (p - y0)) / ds.video.fps;
+    },
 
     frame(dt) {
       if (playing) {
@@ -183,7 +203,7 @@ export async function createFieldWorld(ds, app) {
 
     preview(scope, proj) {
       const f = new Float32Array(CELLS);
-      for (let i = 0; i < CELLS; i++) f[i] = packed[(S - 1) * CELLS + i] / 255;
+      for (let i = 0; i < CELLS; i++) { const u = packed[(S - 1) * CELLS + i] / 255; f[i] = sqrt ? u : shade(u); }
       scope.frame({ blips: null, count: 0, proj, field: f });
     },
   };

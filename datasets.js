@@ -19,6 +19,7 @@ export default [
     events: 'data/lightning.bin',
     startDate: '2017-03-01',
     view: { lon: 10, lat: 10 },
+    video: { src: 'media/lightning-nasa.mp4', fps: 60, label: 'NASA SVS 5011' },   // original frame f is at f / fps seconds
     sourceTitle: 'Lightning Events Detected from the International Space Station (ISS) 2017-2023',
     sourceUrl: 'https://svs.gsfc.nasa.gov/5011/',
     credit:
@@ -43,6 +44,7 @@ export default [
     title: 'Night lights',
     maps: 'data/nightlights.bin',
     view: { lon: 78, lat: 27 },
+    video: { src: 'media/lights-nasa.mp4', fps: 30, frames: [3, 18, 36, 53, 71, 88, 106, 123, 141, 158, 176, 215], label: 'NASA SVS 5313' },
     sourceTitle: 'Change in Night Lights between 2012 and 2023 - EIC Version',
     sourceUrl: 'https://svs.gsfc.nasa.gov/5313/',
     credit:
@@ -61,5 +63,33 @@ export default [
     speedKeys: 'Higher or lower pitch',
     timeKeys: 'Back or forward one year',
     note: 'Lights are read from the picture, not from the measurements, so they show where and how much, not exact brightness.',
+  },
+  {
+    id: 'ocean',
+    kind: 'field',
+    title: 'Ocean',
+    maps: 'data/ocean.bin',
+    view: { lon: -150, lat: 5 },
+    video: { src: 'media/ocean-nasa.mp4', fps: 30, label: 'NASA SVS 3912' },       // frames come from the data file
+    stepsPerSecond: 2,
+    lift: 4,
+    anomaly: true,          // sound and line show the difference from each line's average temperature
+    sourceTitle: 'Global Sea Surface Currents and Temperature',
+    sourceUrl: 'https://svs.gsfc.nasa.gov/3912/',
+    credit:
+      'NASA Scientific Visualization Studio. Animators: Greg Shirah (NASA/GSFC), Horace Mitchell (NASA/GSFC), Eric Sokolowsky (GST). ' +
+      'Producer: Michael Starobin (HTSI). Scientists: Hong Zhang (UCLA), Dimitris Menemenlis (NASA/JPL Caltech). ' +
+      'Data: ECCO2 High Resolution Ocean and Sea Ice Model (MIT/JPL). Coastlines: Natural Earth.',
+    about:
+      'The temperature of the sea surface through one year, March 2007 to March 2008, from the ECCO2 ocean model. Bright is warm. ' +
+      'The warm water moves north and south with the sun, and currents carry it along the edges of the continents.',
+    sound: [
+      'Each line across the globe is a voice, as in Night lights, but here the read head passes over water temperature. Where a line crosses a warm current next to cold water the wave has a step in it, and where the water is all one temperature the voice goes quiet. Land counts as the line\'s average, so it adds nothing.',
+      'The lines sound at pitches set by the shape of the planet: shorter circles, nearer the poles, sound higher. The Earth turns while it plays and the year goes by, so the chord shifts as the warm water moves.',
+    ],
+    quiet: 'The water on this side is close to one temperature along each line.',
+    speedKeys: 'Higher or lower pitch',
+    timeKeys: 'Back or forward a few days',
+    note: 'Temperatures are read from the colours of the picture, not from the model, so they show warm and cold, not measurements.',
   },
 ];

@@ -112,6 +112,8 @@ export async function createEventsWorld(ds, app) {
     stepTime(dir) { world.seek(day + dir * 30.44); },
     timeText() { const t = dateOf(day); return fastAll() ? 'All years' : `${MONTHS[t.getUTCMonth()].slice(0, 3)} ${t.getUTCFullYear()}`; },
     timeAria() { const t = dateOf(day); return `${MONTHS[t.getUTCMonth()]} ${t.getUTCFullYear()}`; },
+    // where NASA's own animation is at this moment, in seconds
+    videoTime() { const f = frameOf(day); return (f + (day - frameDay[f]) / (frameDay[f + 1] - frameDay[f])) / ds.video.fps; },
 
     frame(dt) {
       let count = 0, days = 0;
