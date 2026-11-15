@@ -66,7 +66,7 @@ const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let spinOn = !REDUCE, shownLon = null;
 let ds = null, world = null, playing = false, coast = null, scene = null;
 let ctx = null, out = null, fxSends = {}, pre = null, master = null, meters = null, wavUrl = null, lastSaid = 0, lastFrame = 0;
-let muted = store.get('muted', false), volume = Math.max(0, Math.min(100, Number(store.get('volume', 80)) || 0));
+let muted = store.get('muted', false), volume = Math.max(0, Math.min(100, Number(store.get('volume', 100)) || 0));
 
 function say(text) { ui.live.textContent = ''; setTimeout(() => { ui.live.textContent = text; }, 40); lastSaid = performance.now(); caption(text); }
 
