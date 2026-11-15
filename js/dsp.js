@@ -216,7 +216,17 @@ export class Scanner {
     this.sr = sampleRate; this.cfg = cfg;
     this.freq = cfg.scan.startHz; this.playing = false; this.builtFor = this.freq;
     this.voices = [];
+    this.harmonics = cfg.scan.harmonics;
+    this.plucks = [];                                      // notes ringing now
     this.hpL = { x: 0, y: 0 }; this.hpR = { x: 0, y: 0 };
+  }
+
+  // A plucked note: a sine with two quieter overtones that die away sooner, like a music box tooth.
+  pluck(freq, gainL, gainR, decaySeconds) {
+    if (freq > this.sr * 0.2) return;
+    if (this.plucks.length >= 28) this.plucks.shift();
+    const w = (2 * Math.PI * freq) / this.sr;
+    this.plucks.push({ w, p: 0, gl: gainL, gr: gainR, e: 0, up: 1 / (0.003 * this.sr), d1: Math.exp(-1 / (decaySeconds * this.sr)), d2: Math.exp(-1 / (decaySeconds * 0.35 * this.sr)), a1: 1, a2: 1 });
   }
 
   // list: [{ ratio, L, R }], L and R Float32Array. Crossfades each voice from its old pair.
@@ -238,7 +248,7 @@ export class Scanner {
   // this pitch, and no more than cfg.scan.harmonics of them.
   limit(raw, ratio) {
     const N = raw.L.length;
-    const w = Math.max(1, Math.round((2 * N * this.freq * ratio) / this.sr), Math.round(N / (2 * this.cfg.scan.harmonics)));
+    const w = Math.max(1, Math.round((2 * N * this.freq * ratio) / this.sr), Math.round(N / (2 * this.harmonics)));
     const out = { rawL: raw.rawL || raw.L, rawR: raw.rawR || raw.R };
     out.L = out.rawL; out.R = out.rawR;
     if (w > 1) {
@@ -254,7 +264,7 @@ export class Scanner {
   }
 
   process(left, right, n = left.length) {
-    if (!this.voices.length || !this.playing) { left.fill(0, 0, n); right.fill(0, 0, n); return; }
+    if (!this.voices.length || !this.playing) { left.fill(0, 0, n); right.fill(0, 0, n); this.plucks.length = 0; return; }
     const c = this.cfg, sr = this.sr;
     if (Math.abs(this.freq / this.builtFor - 1) > 0.03) {         // pitch moved: rebuild the smoothed tables
       this.builtFor = this.freq;
@@ -278,6 +288,17 @@ export class Scanner {
         if ((ph += inc) >= 1) ph -= 1;
       }
       v.phase = ph;
+    }
+    for (let q = this.plucks.length - 1; q >= 0; q--) {
+      const v = this.plucks[q];
+      for (let s = 0; s < n; s++) {
+        if (v.e < 1) v.e = Math.min(1, v.e + v.up);
+        const x = (Math.sin(v.p) * v.a1 + (Math.sin(2 * v.p) * 0.3 + Math.sin(3.01 * v.p) * 0.12) * v.a2) * v.e;
+        left[s] += x * v.gl; right[s] += x * v.gr;
+        v.p += v.w; v.a1 *= v.d1; v.a2 *= v.d2;
+      }
+      if (v.p > 1e6) v.p %= Math.PI * 2 * 100;
+      if (v.a1 < 0.0008) this.plucks.splice(q, 1);
     }
     for (let s = 0; s < n; s++) {
       const l = left[s], r = right[s];
@@ -325,7 +346,9 @@ if (typeof AudioWorkletProcessor !== 'undefined') {
       this.port.onmessage = (e) => {
         const m = e.data, a = this.a;
         if (m.freq !== undefined) a.freq = m.freq;
+        if (m.harmonics) a.harmonics = m.harmonics;
         if (m.tables) a.setTables(m.tables);
+        if (m.pluck) for (const q of m.pluck) a.pluck(q[0], q[1], q[2], q[3]);
         if (m.playing !== undefined) a.playing = m.playing;
       };
     }

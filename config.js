@@ -36,45 +36,54 @@ export default {
   // curve and stops adding single clicks (same signal, far less work).
   curveAboveEventsPerSample: 6,
 
-  // PLACEHOLDER: off. The chord. Lightning makes the space between the ground
+  // The chord, always on (Checo's call). PLACEHOLDER amounts. Lightning makes the space between the ground
   // and the upper atmosphere resonate at 7.83, 14.3, 20.8, 27.3 and 33.8 Hz
   // (the Schumann resonances). Moved up `octavesUp` octaves these are five
   // audible pitches, and every click strikes all five.
-  //   mix           0 = clicks only. The Chord button switches to `onMix`.
-  //   onMix         1 = chord only, lower leaves some of the click in.
+  //   mix           1 = chord only, lower leaves some of the click in, 0 = clicks only.
   //   decaySeconds  how long a struck pitch rings. Long = smooth held tones.
   //                 Short (0.02) = closer to the real, dull resonance, and buzzy.
   // Try from the address bar: ?chord=1  or  ?chord=0.7&decay=1.5&octaves=6
-  ring: { mix: 0, onMix: 0.9, octavesUp: 5, modesHz: [7.83, 14.3, 20.8, 27.3, 33.8], decaySeconds: 0.8 },
+  ring: { mix: 0.9, onMix: 0.9, octavesUp: 5, modesHz: [7.83, 14.3, 20.8, 27.3, 33.8], decaySeconds: 0.8 },
 
-  // PLACEHOLDER: no effects. Checo is undecided. 0 = off, 1 = fully wet.
-  // Try them from the address bar: ?reverb=0.3&delay=0.2  (also ?click=1500 for click colour)
-  effects: { reverb: 0, reverbSeconds: 3.5, delay: 0, delaySeconds: 0.36, delayFeedback: 0.35 },
+  // PLACEHOLDER amounts. Space around the sound: a long reverb and an echo that
+  // bounces from side to side. 0 = none, 1 = as much echo or reverb as direct sound.
+  effects: { reverb: 0.55, reverbSeconds: 5, delay: 0.3, delaySeconds: 0.42, delayFeedback: 0.42 },
 
-  // ---- Map worlds (maps without events, such as night lights) -----------
-  // PLACEHOLDER mapping. Each line of latitude is a voice. A read head runs
-  // along every line at the same ground speed, and what it passes over on the
-  // side of the Earth facing you is that voice's waveform. Lines nearer the
-  // poles are shorter circles, so the head gets round them sooner and they
-  // sound higher: pitch = equator pitch / cos(latitude). That makes 36.87
-  // degrees a major third above the equator, 48.19 a fifth and 60 an octave.
-  // Nobody chose those intervals; they are the shape of the planet. Which
-  // lines sound is the choice: these give a five-note scale with no clashes.
+  // ---- Map worlds (night lights, ocean) --------------------------------
+  // PLACEHOLDER mapping. Each chosen line of latitude has a pitch. All read
+  // heads move over the ground at the same speed, and lines nearer the poles
+  // are shorter circles, so they sound higher: pitch = root / cos(latitude).
+  // That makes 36.87 degrees a major third above the equator, 48.19 a fifth
+  // and 60 an octave. The intervals are the shape of the planet; which lines
+  // are used is the choice (these give a five-note scale with no clashes).
   scan: {
-    startHz: 110, minHz: 40, maxHz: 440,                     // pitch of the equator line
     linesDegrees: [60, 53.13, 48.19, 36.87, 27.27, 0, -27.27, -36.87],
     bandDegrees: 1.5,         // each line is this many degrees wide on each side
-    level: 0.3,               // loudness (RMS) of the busiest line with its busiest side facing you
-    backLevel: 0.1,           // how loud the far side of the Earth is (0 = silent, 1 = same as the near side)
-    harmonics: 24,            // tone colour: how much fine detail of the map is kept in the wave
+    backLevel: 0.1,           // how loud the far side of the Earth is in the held voices (0 = silent)
+    harmonics: 24,            // default tone colour of the held voices (each world sets its own below)
     stepsPerSecond: 0.25,     // how fast the years (or months) pass while playing
     crossfadeSeconds: 0.2,
+    minHz: 40, maxHz: 880,    // range of the pitch slider
+  },
+  // How each map world sounds. PLACEHOLDERS.
+  //   rootHz   pitch of the equator line
+  //   pad      held voices: one per line, shaped by the data along the line on the near side.
+  //            level 0 = none. harmonics low = soft and round, high = bright and buzzy.
+  //            octave moves the held voices up or down against the plucked ones.
+  //   pluck    a music box: the Earth is the drum and bright places are the pins. When a
+  //            bright place on a line crosses the middle of the globe it plucks that line's note.
+  //            threshold = how bright (0 to 1) a place must be. null = no plucking.
+  worlds: {
+    lights: { rootHz: 220, pad: { level: 0.05, harmonics: 3, octave: -1 }, pluck: { level: 0.36, threshold: 0.25, decaySeconds: 1.8 } },
+    ocean:  { rootHz: 73.42, pad: { level: 0.3, harmonics: 3, octave: 0 }, pluck: null },
   },
 
   // ---- The Earth turns ---------------------------------------------------
   // PLACEHOLDER. While playing, the globe turns by itself and you hear what
   // comes round. Dragging or the arrow keys still turn it by hand.
-  spin: { secondsPerTurn: 48, holdAfterTouchSeconds: 2.5 },
+  // After a drag the globe keeps the speed you gave it and settles back to its own over `settleSeconds`.
+  spin: { secondsPerTurn: 48, settleSeconds: 1.6 },
 
   // ---- Listening position -----------------------------------------------
   // You hear the half of the Earth that faces you. Left of the globe is the

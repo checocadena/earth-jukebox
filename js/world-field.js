@@ -62,9 +62,12 @@ export async function createFieldWorld(ds, app) {
     for (let c = 0; c < COLS; c++) { ss += (ln.wave[c] - mean) ** 2; top = Math.max(top, ln.wave[c]); }
     loud = Math.max(loud, Math.sqrt(ss / COLS));
   }
-  const gain = cfg.level / loud / Math.sqrt(lines.length / 3);
+  // How this world sounds: held voices (pad), plucked notes, or both. All from config.js.
+  const snd = settings.worlds?.[ds.id] || { rootHz: 110, pad: { level: 0.2, harmonics: 8, octave: 0 }, pluck: null };
+  const padLevel = snd.pad?.level || 0, padShift = Math.pow(2, snd.pad?.octave || 0);
+  const gain = padLevel / loud / Math.sqrt(lines.length / 3);
 
-  let pos = 0, freq = cfg.startHz, playing = false, node = null, lastPost = 0, fieldAt = -1;
+  let pos = 0, freq = snd.rootHz, playing = false, node = null, lastPost = 0, fieldAt = -1, lastCol = null;
   const field = new Float32Array(CELLS);                   // what is drawn
   const tmp = new Float32Array(COLS);
 
@@ -93,7 +96,7 @@ export async function createFieldWorld(ds, app) {
         ln.L[col] = (ln.L[col] - mL) * gain; ln.R[col] = (ln.R[col] - mR) * gain;
         ss += ln.L[col] ** 2 + ln.R[col] ** 2;
       }
-      ln.level = Math.sqrt(ss / COLS) / cfg.level;
+      ln.level = Math.sqrt(ss / COLS) / (padLevel || 1);
       ln.facing = facing; if (first) ln.facingFirst = facingFirst;
     }
     return lines.map((ln) => ({ ratio: ln.ratio, L: ln.L.slice(), R: ln.R.slice() }));
@@ -123,18 +126,48 @@ export async function createFieldWorld(ds, app) {
   }
 
   const label = () => labels[Math.min(S - 1, Math.round(pos))];
-  const hzText = (long) => (long ? `Equator line at ${Math.round(freq)} hertz` : `${Math.round(freq)} Hz`);
+  const hzText = (long) => (long ? `Equator note at ${Math.round(freq)} hertz` : `${Math.round(freq)} Hz`);
+
+  // The music box. The Earth is the drum and bright places are its pins: when a bright
+  // place on a line crosses the middle of the globe, it plucks that line's note.
+  // from, to: the longitude at the middle before and now. emit(freq, gainL, gainR, decay).
+  function pins(from, to, viewLat, emit) {
+    const pk = snd.pluck; if (!pk) return;
+    let d = ((to - from + 540) % 360) - 180;              // degrees turned, the short way
+    const dir = d < 0 ? -1 : 1; d = Math.min(12, Math.abs(Math.round(d)));
+    for (let k = 1; k <= d; k++) {
+      const col = (((Math.round(from) + dir * k + 180) % COLS) + COLS) % COLS;
+      for (const ln of lines) {
+        if (Math.cos(((ln.lat - viewLat) * Math.PI) / 180) < 0.25) continue;      // that line is not in view
+        const v = ln.wave[col], a = ln.wave[(col + COLS - 1) % COLS], b = ln.wave[(col + 1) % COLS];
+        const bright = Math.sqrt(v / top);
+        if (bright < pk.threshold || v < a || v <= b) continue;                   // only the brightest spot of each place
+        const amp = pk.level * Math.min(1, bright) * 0.5, pan = (((col * 37 + ln.row * 11) % 100) / 100 - 0.5) * 0.9;   // each place keeps its own spot between the ears
+        const ang = ((pan + 1) * Math.PI) / 4;
+        emit(freq * ln.ratio, amp * Math.cos(ang), amp * Math.sin(ang), pk.decaySeconds);
+      }
+    }
+  }
   const latText = (lat) => (Math.abs(lat) < 1 ? 'the equator' : `${Math.round(Math.abs(lat))} degrees ${lat > 0 ? 'north' : 'south'}`);
 
   const world = {
     kind: 'field', hasChord: false,
 
-    viewChanged() { update(true); },
+    viewChanged() {
+      update(true);
+      const col = Math.round(app.view.lon);
+      if (playing && node && lastCol !== null && col !== lastCol) {
+        const hits = [];
+        pins(lastCol, col, app.view.lat, (f, l, r, dec) => hits.push([f, l, r, dec]));
+        if (hits.length) node.port.postMessage({ pluck: hits });
+      }
+      lastCol = col;
+    },
 
     start(ctx) {
       if (node) return node;
       node = new AudioWorkletNode(ctx, 'scanner', { numberOfInputs: 0, outputChannelCount: [2], processorOptions: { cfg: settings } });
-      node.port.postMessage({ freq, tables: tables(app.proj, Math.min(S - 1, pos)) });
+      node.port.postMessage({ freq: freq * padShift, harmonics: snd.pad?.harmonics || cfg.harmonics, tables: tables(app.proj, Math.min(S - 1, pos)) });
       return node;
     },
     setPlaying(on) { playing = on; node?.port.postMessage({ playing: on }); },
@@ -144,7 +177,7 @@ export async function createFieldWorld(ds, app) {
     speedAnnounce: () => hzText(true),
     get speedSlider() { return Math.log(freq / cfg.minHz) / Math.log(cfg.maxHz / cfg.minHz); },
     set speedSlider(v) { world.setSpeed(cfg.minHz * Math.pow(cfg.maxHz / cfg.minHz, v)); },
-    setSpeed(f) { freq = Math.max(cfg.minHz, Math.min(cfg.maxHz, f)); node?.port.postMessage({ freq }); },
+    setSpeed(f) { freq = Math.max(cfg.minHz, Math.min(cfg.maxHz, f)); node?.port.postMessage({ freq: freq * padShift }); },
     nudgeSpeed(steps) { world.setSpeed(freq * Math.pow(2, steps / 12)); },   // one step is a semitone
 
     get timeSlider() { return Math.min(S - 1, pos) / (S - 1); },
@@ -184,15 +217,18 @@ export async function createFieldWorld(ds, app) {
 
     async renderWav(progress) {
       const sr = settings.render.sampleRate, a = new Scanner(sr, settings);
-      a.freq = freq; a.playing = true;
+      a.freq = freq * padShift; a.harmonics = snd.pad?.harmonics || cfg.harmonics; a.playing = true;
       const turn = settings.spin.secondsPerTurn;
       const secs = Math.min(settings.render.maxSeconds, Math.max(turn, (S - 1) / rate + 2)), total = Math.ceil(secs * sr);
       const L = new Float32Array(total), R = new Float32Array(total), step = Math.round(sr / 10);
       const proj = { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS) };
+      let was = null;
       for (let i = 0; i < total; i += step) {
-        const t = i / sr;
-        app.projFor(app.view.lon + (t * 360) / turn, proj);
+        const t = i / sr, lon = app.view.lon + (t * 360) / turn;
+        app.projFor(lon, proj);
         a.setTables(tables(proj, Math.min(S - 1, t * rate), true));
+        if (was !== null) pins(was, Math.round(lon), app.view.lat, (f, l, r, dec) => a.pluck(f, l, r, dec));
+        was = Math.round(lon);
         const n = Math.min(step, total - i);
         a.process(L.subarray(i, i + n), R.subarray(i, i + n), n);
         if (i % (sr * 2) < step) await progress((i + n) / total);

@@ -30,7 +30,7 @@ export function makeScope(canvas, cfg, look, opts = {}) {
     for (const c of [canvas, base, phos, heat]) { c.width = w; c.height = h; }
     heatDirty = true;
     // leave room for the title above and the two control rows below
-    const t = top * dpr, b = bottom * dpr;
+    const t = (typeof top === 'function' ? top() : top) * dpr, b = bottom * dpr;
     R = Math.max(20, Math.min(w * fill, (h - t - b) / 2 / (ticks ? 1.26 : 1.04)));
     cx = w / 2; cy = t + (h - t - b) / 2;
     baseDirty = true;
@@ -106,6 +106,7 @@ export function makeScope(canvas, cfg, look, opts = {}) {
 
     g.clearRect(0, 0, w, h);
     g.globalCompositeOperation = 'source-over';
+    if (opts.disc) { g.fillStyle = '#000'; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill(); }   // the Earth is solid: no stars through it
     g.drawImage(heat, 0, 0);
     g.drawImage(base, 0, 0);
     g.globalCompositeOperation = 'lighter';

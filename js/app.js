@@ -37,10 +37,14 @@ document.documentElement.style.setProperty('--accent', look.accent);
 document.documentElement.style.setProperty('--glow', `rgb(${look.dataGlow})`);
 
 // What every world shares: the scope, the side of the Earth facing the listener, the voice.
-const TOP = 104, BOTTOM = 150, FILL = 0.39;     // room kept for the header and the controls, in CSS pixels
+// Room kept for the header and the controls, in CSS pixels. On narrow screens NASA's frame sits
+// above the globe, so the globe starts lower.
+const BOTTOM = 150, FILL = 0.39;
+const frameBox = () => { const w = Math.min(innerWidth * 0.62, 300); return { w, h: w / 2 }; };
+const TOP = () => (innerWidth <= 900 ? 112 + frameBox().h + 8 : 104);
 const app = {
   settings,
-  scope: makeScope(ui.scopeCanvas, settings.scope, look, { top: TOP, bottom: BOTTOM, fill: FILL }),
+  scope: makeScope(ui.scopeCanvas, settings.scope, look, { top: TOP, bottom: BOTTOM, fill: FILL, disc: true }),
   view: { lon: settings.view.lon, lat: settings.view.lat },
   proj: { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS) },
   // positions of every cell for a view at the current tilt, turned to `lon` (whole degrees)
@@ -50,7 +54,7 @@ const app = {
 // Cell positions for the current tilt with longitude 0 facing; turning the globe only shifts them sideways.
 const base = { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS), lat: null };
 const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
-let spinHold = 0, spinOn = !REDUCE, shownLon = null;
+let spinOn = !REDUCE, shownLon = null;
 let ds = null, world = null, playing = false, coast = null, scene = null;
 let ctx = null, out = null, wavUrl = null, lastSaid = 0, lastFrame = 0;
 
@@ -68,7 +72,7 @@ async function build() {
   datasets.forEach((d, i) => {
     const canvas = document.createElement('canvas');
     const p = {
-      d, canvas, world: null, lon: d.view.lon - 30 + i * 20, lat: d.view.lat,
+      d, canvas, world: null, lon: d.view.lon - 30 + i * 20, lat: d.view.lat, vel: 0, vlat: 0,
       scope: makeScope(canvas, settings.scope, look, { size: PIC, top: 0, bottom: 0, ticks: false, fill: 0.47, lazyMarks: true }),
       base: { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS), lat: null },
       proj: { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS) },
@@ -77,9 +81,11 @@ async function build() {
     // the world as something to choose: a round button that follows it, and its name underneath
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'world';
-    const s = document.createElement('span'); s.textContent = d.title;
-    b.append(s);
-    b.addEventListener('click', () => { location.hash = d.id; });
+    b.setAttribute('aria-label', d.title);                 // the name itself is drawn in the scene, curved under the world
+    b.addEventListener('click', () => { unlockAudio(); location.hash = d.id; });
+    const lit = (on) => () => { scene.hot = on ? i : -1; };
+    b.addEventListener('pointerenter', lit(true)); b.addEventListener('pointerleave', lit(false));
+    b.addEventListener('focus', lit(true)); b.addEventListener('blur', lit(false));
     ui.hub.append(b);
     p.button = b;
     planets.push(p);
@@ -88,7 +94,7 @@ async function build() {
     // and as a tab, for flying from one world to another
     const t = document.createElement('button');
     t.type = 'button'; t.className = 'tab'; t.textContent = d.title;
-    t.addEventListener('click', () => { location.hash = d.id; });
+    t.addEventListener('click', () => { unlockAudio(); location.hash = d.id; });
     ui.tabs.append(t);
   });
   scene = makeScene({ canvas: ui.sceneCanvas, look, title: project.title, planets, landing, still: REDUCE });
@@ -97,7 +103,8 @@ async function build() {
 // Where world i's big globe sits on screen (the same sum the scope does), in CSS pixels.
 function landing(i) {
   const ticks = planets[i].d.kind === 'events', W = innerWidth, H = innerHeight;
-  return { x: W / 2, y: TOP + (H - TOP - BOTTOM) / 2, r: Math.max(20, Math.min(W * FILL, (H - TOP - BOTTOM) / 2 / (ticks ? 1.26 : 1.04))) };
+  const top = TOP();
+  return { x: W / 2, y: top + (H - top - BOTTOM) / 2, r: Math.max(20, Math.min(W * FILL, (H - top - BOTTOM) / 2 / (ticks ? 1.26 : 1.04))) };
 }
 const planetOf = (d) => planets.find((p) => p.d === d);
 
@@ -117,14 +124,14 @@ function drawPictures() {
 async function route(first) {
   const d = datasets.find((x) => x.id === location.hash.slice(1)) || null;
   if (d === ds && !first) return;
-  const from = ds, keepPlaying = playing && !!d;          // moving between worlds: the sound carries on in the next one
+  const from = ds;
   await setPlaying(false);
   ds = d; world = null;
   showNasa(false);
   ui.download.hidden = true; ui.status.textContent = '';
   [...ui.tabs.children].forEach((t, i) => t.setAttribute('aria-current', String(datasets[i] === d)));
   document.title = d ? `${d.title} · ${project.title}` : project.title;
-  ui.ring.hidden = !(d && d.kind === 'events'); ui.nasa.hidden = !(d && d.video); ui.wav.hidden = !d; ui.tabs.hidden = !d;
+  ui.wav.hidden = !d; ui.tabs.hidden = !d;
   document.body.classList.toggle('in-world', !!d);
   document.body.classList.toggle('in-menu', !d);
 
@@ -136,20 +143,21 @@ async function route(first) {
   const p = planetOf(d), i = planets.indexOf(p);
   $('intro').textContent = `${d.about} Space plays and pauses. Left and right arrows turn the globe, shift with up and down tilts it. ` +
     `Up and down arrows: ${d.speedKeys.toLowerCase()}. Comma and full stop: ${d.timeKeys.toLowerCase()}. Square brackets fly to the next or previous world. ` +
-    'D says what is playing. W makes a WAV file. S stops or starts the turning. Escape goes back to the menu.';
+    "D says what is playing. W makes a WAV file. S stops or starts the turning. Escape goes back to the menu. NASA's own animation is shown beside the globe.";
   const arrive = () => {
     ui.globe.focus({ preventScroll: true });
-    if (keepPlaying) setPlaying(true); else say(`${d.title}. ${d.about} Press space to play.`);
+    say(`${d.title}. ${d.about}`);
+    setPlaying(true, true);                                // starts by itself; if the browser will not allow it yet, Play is there
   };
   if (first) scene.set({ mode: 'world', i });
-  else scene.go({ mode: 'world', i }, from ? 1.7 : 1.3, arrive, from ? { mode: 'menu' } : undefined);   // world to world: out, across, in
+  else scene.go({ mode: 'world', i }, from ? 1.5 : 1.3, arrive);
   const w = await p.loading;
   if (ds !== d) return;                                   // left again while loading
   world = w;
   app.scope.setTicks(d.kind === 'events');               // month ticks only where the rim is a calendar
   app.scope.resize(); app.scope.clear();
   shownLon = null; setView(p.lon, p.lat, true);
-  ui.ring.setAttribute('aria-pressed', String(settings.ring.mix > 0));
+  showNasa(true);                                          // NASA's own frame is always beside ours
   readouts(true);
   if (first) arrive();
 }
@@ -160,6 +168,7 @@ function attract() {
   const begin = () => {
     if (ui.start.hidden) return;
     ui.start.hidden = true;
+    unlockAudio();
     removeEventListener('keydown', key, true); removeEventListener('pointerdown', begin, true);
     scene.go({ mode: 'menu' }, 3.4, () => { say(`${project.title}. ${datasets.length} worlds: ${datasets.map((x) => x.title).join(', ')}.`); planets[0].button.focus({ preventScroll: true }); });
   };
@@ -181,49 +190,77 @@ function setView(lon, lat, now) {
   shiftCells(base, whole, app.proj);
   world?.viewChanged(now);
 }
-const touched = () => { spinHold = performance.now() + settings.spin.holdAfterTouchSeconds * 1000; };
 const turn = (dLon, dLat) => {
-  touched();
   setView(app.view.lon + dLon, app.view.lat + dLat);
   say(world.kind === 'field' && dLat ? world.describe() : `Facing ${placeName(app.view.lon, app.view.lat)}.`);
 };
 
 // ---------- audio ----------
-async function ensureAudio() {
-  if (!ctx) {
-    if (navigator.audioSession) { try { navigator.audioSession.type = 'playback'; } catch {} }
-    ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-    await ctx.audioWorklet.addModule('js/dsp.js');
-    out = ctx.createGain(); out.connect(ctx.destination);
-    const fx = settings.effects;
-    if (fx.reverb > 0) {                    // optional, off by default
-      const len = Math.floor(ctx.sampleRate * fx.reverbSeconds), ir = ctx.createBuffer(2, len, ctx.sampleRate);
-      for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
-      const conv = ctx.createConvolver(); conv.buffer = ir;
-      const wet = ctx.createGain(); wet.gain.value = fx.reverb * 0.5;
-      out.connect(conv).connect(wet).connect(ctx.destination);
+// The space around the sound: a long reverb and an echo that bounces from side to side.
+// Built the same way for the live sound and for the WAV file.
+function buildFx(ac, input, fx) {
+  input.connect(ac.destination);
+  if (fx.reverb > 0) {
+    const len = Math.floor(ac.sampleRate * fx.reverbSeconds), ir = ac.createBuffer(2, len, ac.sampleRate);
+    let seed = 20261114; const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2147483648) - 1;   // the same room every time
+    for (let c = 0; c < 2; c++) {
+      const d = ir.getChannelData(c); let lp = 0;
+      for (let i = 0; i < len; i++) {
+        const t = i / len, k = 0.5 * Math.pow(1 - t, 1.5) + 0.03;      // the tail gets darker as it dies
+        lp += k * (rnd() - lp);
+        d[i] = lp * Math.pow(1 - t, 2.2) * (i < 400 ? i / 400 : 1);
+      }
     }
-    if (fx.delay > 0) {
-      const d = ctx.createDelay(2); d.delayTime.value = fx.delaySeconds;
-      const fb = ctx.createGain(); fb.gain.value = fx.delayFeedback;
-      const wet = ctx.createGain(); wet.gain.value = fx.delay;
-      out.connect(d); d.connect(fb).connect(d); d.connect(wet).connect(ctx.destination);
-    }
+    const conv = ac.createConvolver(); conv.buffer = ir;
+    const wet = ac.createGain(); wet.gain.value = fx.reverb * 1.6;
+    input.connect(conv).connect(wet).connect(ac.destination);
   }
+  if (fx.delay > 0) {
+    const dl = ac.createDelay(2), dr = ac.createDelay(2), fb = ac.createGain(), tone = ac.createBiquadFilter();
+    const merge = ac.createChannelMerger(2), wet = ac.createGain(), mono = ac.createGain();
+    dl.delayTime.value = fx.delaySeconds; dr.delayTime.value = fx.delaySeconds;
+    fb.gain.value = fx.delayFeedback; tone.type = 'lowpass'; tone.frequency.value = 2600; wet.gain.value = fx.delay; mono.gain.value = 0.6;
+    input.connect(mono).connect(dl); dl.connect(dr); dr.connect(tone).connect(fb).connect(dl);    // left, then right, then round again
+    dl.connect(merge, 0, 0); dr.connect(merge, 0, 1);
+    merge.connect(wet).connect(ac.destination);
+  }
+}
+
+// Browsers only let sound start from a tap or a key. Every tap that leads somewhere calls this,
+// so that by the time a world arrives the sound can start by itself.
+function unlockAudio() {
+  try {
+    if (!ctx) {
+      if (navigator.audioSession) { try { navigator.audioSession.type = 'playback'; } catch {} }
+      ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+      out = ctx.createGain(); buildFx(ctx, out, settings.effects);
+      ctx.ready = ctx.audioWorklet.addModule('js/dsp.js');
+    }
+    ctx.resume();
+  } catch {}
+}
+
+async function ensureAudio() {
+  unlockAudio();
+  await ctx.ready;
   const node = world.start(ctx);
   if (!node.wired) { node.connect(out); node.wired = true; }
 }
 
-async function setPlaying(on) {
+// quiet: this was not asked for by a tap (sound starting by itself), so say nothing if it cannot start
+async function setPlaying(on, quiet) {
   if (on && !world) return;
   if (on) {
-    try { await ensureAudio(); await ctx.resume(); } catch (e) { ui.status.textContent = 'Sound could not start: ' + e.message; return; }
+    try {
+      await ensureAudio(); await Promise.race([ctx.resume(), new Promise((r) => setTimeout(r, 400))]);
+      if (ctx.state !== 'running') { if (!quiet) ui.status.textContent = 'Tap Play to start the sound.'; return; }
+    } catch (e) { if (!quiet) ui.status.textContent = 'Sound could not start: ' + e.message; return; }
   }
   const was = playing;
   playing = on;
   world?.setPlaying(on);
   ui.play.textContent = on ? 'Pause' : 'Play';
-  if (world && on !== was) say(on ? world.describe() : 'Paused. ' + world.describe());
+  if (world && on !== was && !quiet) say(on ? world.describe() : 'Paused. ' + world.describe());
 }
 
 // ---------- readouts and drawing ----------
@@ -246,7 +283,15 @@ function tick(now) {
   const active = ds && planetOf(ds), moving = scene.moving;
 
   // every world turns, all the time, unless a hand is on it
-  if (spinOn) for (const p of planets) if (p !== active || (!drag && now > spinHold)) p.lon = ((p.lon + (dt * 360) / settings.spin.secondsPerTurn + 540) % 360) - 180;
+  // Every world turns, all the time. A drag gives it the speed of the hand; let go and it
+  // carries on with that speed, settling back to its own.
+  const own = spinOn ? 360 / settings.spin.secondsPerTurn : 0, settle = 1 - Math.exp(-dt / settings.spin.settleSeconds);
+  for (const p of planets) {
+    if (p === active && drag) continue;
+    p.vel += (own - p.vel) * settle; p.vlat += (0 - p.vlat) * Math.min(1, settle * 3);
+    p.lon = ((p.lon + p.vel * dt + 540) % 360) - 180;
+    p.lat = Math.max(-70, Math.min(70, p.lat + p.vlat * dt));
+  }
   if (active && world) setView(active.lon, active.lat);
 
   // How much of the picture is the 3D scene, and how much the big globe. They show the same
@@ -262,10 +307,12 @@ function tick(now) {
   ui.sceneCanvas.style.opacity = String(sceneAlpha);
   ui.scopeCanvas.style.opacity = String(worldAlpha);
   ui.player.style.opacity = String(worldAlpha); ui.tabs.style.opacity = String(ds ? Math.max(worldAlpha, 0.35) : 0);
+  frame.style.opacity = String(worldAlpha);
   const mode = moving ? 'moving' : scene.mode;
   if (mode !== shownMode) {                               // only the place we are in can be touched
     shownMode = mode;
     ui.player.hidden = mode !== 'world'; ui.hub.hidden = mode !== 'menu';
+    if (mode === 'menu' && !ui.about.open) (planets[Math.max(0, scene.active)] || planets[0]).button.focus({ preventScroll: true });
     ui.header.hidden = scene.mode === 'attract' && !moving;
     document.body.dataset.place = mode;
   }
@@ -280,7 +327,6 @@ function tick(now) {
 // Keep each world's button over it as it goes round.
 function placeButtons(s) {
   if (s.mode !== 'menu' || s.moving) return;
-  const rs = s.spots.filter(Boolean).map((q) => q.r), lo = Math.min(...rs), hi = Math.max(...rs);
   planets.forEach((p, i) => {
     const q = s.spots[i], b = p.button;
     if (!q) { b.style.display = 'none'; return; }
@@ -288,7 +334,6 @@ function placeButtons(s) {
     b.style.width = b.style.height = `${q.r * 2}px`;
     b.style.transform = `translate(${q.x - q.r}px, ${q.y - q.r}px)`;
     b.style.zIndex = String(Math.round(q.r));            // the nearest world is on top
-    b.firstChild.style.opacity = String(hi > lo ? 0.4 + 0.6 * ((q.r - lo) / (hi - lo)) : 1);
   });
 }
 
@@ -298,7 +343,15 @@ async function makeWav() {
   ui.wav.disabled = true; ui.download.hidden = true;
   try {
     const r = await world.renderWav(async (p) => { ui.status.textContent = `Making WAV: ${Math.round(p * 100)}%`; await new Promise((res) => setTimeout(res)); });
-    const blob = toWav({ numberOfChannels: 2, sampleRate: r.sr, length: r.L.length, getChannelData: (c) => (c ? r.R : r.L) });
+    // run the dry render through the same reverb and echo as the live sound
+    ui.status.textContent = 'Making WAV: adding the room';
+    const tail = settings.effects.reverb > 0 || settings.effects.delay > 0 ? 6 : 0;
+    const off = new OfflineAudioContext(2, r.L.length + tail * r.sr, r.sr), dry = off.createBuffer(2, r.L.length, r.sr);
+    dry.copyToChannel(r.L, 0); dry.copyToChannel(r.R, 1);
+    const src = off.createBufferSource(), bus = off.createGain(); src.buffer = dry; src.connect(bus); buildFx(off, bus, settings.effects); src.start();
+    const wet = await off.startRendering();
+    r.secs += tail;
+    const blob = toWav(wet);
     if (wavUrl) URL.revokeObjectURL(wavUrl);
     wavUrl = URL.createObjectURL(blob);
     const name = `earth-jukebox-${ds.id}-${r.tag}.wav`;
@@ -326,8 +379,7 @@ function showInfo() {
     p(d.about); d.sound.forEach(p);
     keys.hidden = false;
     const rows = [['Space', 'Play or pause'], ['← →', 'Turn the globe'], ['Shift ↑ ↓', 'Tilt the globe'], ['↑ ↓', d.speedKeys], [', .', d.timeKeys]];
-    if (d.kind === 'events') rows.push(['C', 'Chord on or off']);
-    rows.push(['[ ]', 'Previous or next world'], ['N', "Show NASA's own animation"], ['S', 'Stop or start the turning'], ['D', 'Say what is playing'], ['W', 'Make a WAV file'], ['Esc', 'Back to the menu']);
+    rows.push(['[ ]', 'Previous or next world'], ['S', 'Stop or start the turning'], ['D', 'Say what is playing'], ['W', 'Make a WAV file'], ['Esc', 'Back to the menu']);
     for (const [k, v] of rows) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; keys.append(dt, dd); }
     $('credit').textContent = `${d.credit} Source: ${d.sourceTitle}, ${d.sourceUrl}. ${d.note}`;
   }
@@ -335,29 +387,22 @@ function showInfo() {
 }
 
 // ---------- controls ----------
-function setChord(on) {
-  world?.setChord(on);
-  ui.ring.setAttribute('aria-pressed', String(on));
-  say(on ? 'Chord on.' : 'Chord off.');
-}
 // The title: from a world it goes back to the menu; in the menu it steps back from the machine and in again.
 const goHome = () => {
   if (location.hash) { location.hash = ''; return; }
   if (scene.mode === 'menu' && !scene.moving) scene.go({ mode: 'attract' }, 1.6, () => scene.go({ mode: 'menu' }, 3.0));
 };
-const hop = (n) => { const i = datasets.indexOf(ds); if (i >= 0) location.hash = datasets[(i + n + datasets.length) % datasets.length].id; };
+const hop = (n) => { const i = datasets.indexOf(ds); if (i >= 0) { unlockAudio(); location.hash = datasets[(i + n + datasets.length) % datasets.length].id; } };
 
 // NASA's own picture, beside ours, kept at the same moment as the sound.
 const frame = $('frame'), vid = $('nasavid');
 let nasaOn = false, lastSeek = 0;
 function showNasa(on) {
   nasaOn = !!on && !!ds?.video;
-  ui.nasa.setAttribute('aria-pressed', String(nasaOn));
   frame.hidden = !nasaOn;
   if (!nasaOn) return;
   if (vid.dataset.src !== ds.video.src) { vid.dataset.src = ds.video.src; vid.src = ds.video.src; }
   const a = $('framesrc'); a.href = ds.sourceUrl; a.textContent = ds.video.label;
-  say(`Showing NASA's animation: ${ds.sourceTitle}.`);
 }
 function syncNasa(now) {
   if (!nasaOn || !world || now - lastSeek < 180 || vid.readyState < 1 || vid.seeking) return;
@@ -366,11 +411,9 @@ function syncNasa(now) {
 }
 
 ui.home.addEventListener('click', goHome);
-ui.play.addEventListener('click', () => setPlaying(!playing));
+ui.play.addEventListener('click', () => { ui.status.textContent = ''; setPlaying(!playing); });
 ui.wav.addEventListener('click', makeWav);
-ui.ring.addEventListener('click', () => setChord(ui.ring.getAttribute('aria-pressed') !== 'true'));
 ui.info.addEventListener('click', showInfo);
-ui.nasa.addEventListener('click', () => showNasa(!nasaOn));
 ui.close.addEventListener('click', () => ui.about.close());
 ui.about.addEventListener('click', (e) => { if (e.target === ui.about) ui.about.close(); });
 ui.time.addEventListener('input', () => { if (world) { world.timeSlider = ui.time.value / 1000; readouts(false); } });
@@ -383,16 +426,22 @@ ui.globe.addEventListener('blur', () => app.scope.setFocus(false));
 
 // drag the globe; a tap plays or pauses
 let drag = null;
-ui.globe.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; ui.globe.setPointerCapture(e.pointerId); });
+ui.globe.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, moved: 0, t: performance.now(), vx: 0, vy: 0 }; ui.globe.setPointerCapture(e.pointerId); });
 ui.globe.addEventListener('pointermove', (e) => {
   if (!drag || !world) return;
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y, k = 57.3 / app.scope.radius;
   drag.moved += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY;
-  if (drag.moved > 6) { touched(); setView(app.view.lon - dx * k, app.view.lat + dy * k); }
+  const now = performance.now(), dt = Math.max(0.004, (now - drag.t) / 1000); drag.t = now;
+  drag.vx += ((-dx * k) / dt - drag.vx) * 0.5; drag.vy += ((dy * k) / dt - drag.vy) * 0.5;   // how fast the hand is turning it
+  if (drag.moved > 6) setView(app.view.lon - dx * k, app.view.lat + dy * k);
 });
 ui.globe.addEventListener('pointerup', (e) => {
   if (drag && drag.moved <= 6 && app.scope.inside(e.clientX, e.clientY)) setPlaying(!playing);
-  else if (drag && world) say(world.kind === 'field' ? world.describe() : `Facing ${placeName(app.view.lon, app.view.lat)}.`);
+  else if (drag && world) {
+    const p = planetOf(ds);
+    if (performance.now() - drag.t < 120) { p.vel = Math.max(-400, Math.min(400, drag.vx)); p.vlat = Math.max(-200, Math.min(200, drag.vy)); }   // let go while moving: it keeps going
+    say(world.kind === 'field' ? world.describe() : `Facing ${placeName(app.view.lon, app.view.lat)}.`);
+  }
   drag = null;
 });
 ui.globe.addEventListener('pointercancel', () => { drag = null; });
@@ -406,7 +455,6 @@ document.addEventListener('keydown', (e) => {
   if (k === 'Escape') { e.preventDefault(); goHome(); return; }
   if (tag === 'INPUT') return;                               // sliders keep their own arrow keys
   const step = settings.view.stepDegrees;
-  const chord = () => world.hasChord && setChord(ui.ring.getAttribute('aria-pressed') !== 'true');
   const speed = (n) => { world.nudgeSpeed(n); readouts(true); say(world.speedAnnounce()); };
   const time = (n) => { world.stepTime(n); readouts(true); say(world.describe()); };
   const spin = () => { spinOn = !spinOn; say(spinOn ? 'The Earth is turning.' : 'The Earth has stopped turning.'); };
@@ -418,15 +466,29 @@ document.addEventListener('keydown', (e) => {
     ',': () => time(-1), '.': () => time(1),
     Home: () => { world.timeSlider = 0; readouts(true); say(world.describe()); },
     d: () => say(world.describe()), D: () => say(world.describe()),
-    w: makeWav, W: makeWav, c: chord, C: chord, s: spin, S: spin,
-    '[': () => hop(-1), ']': () => hop(1), n: () => showNasa(!nasaOn), N: () => showNasa(!nasaOn),
+    w: makeWav, W: makeWav, s: spin, S: spin,
+    '[': () => hop(-1), ']': () => hop(1),
   }[k];
   if (!act) return;
   e.preventDefault();
   act();
 });
 
-window.addEventListener('resize', () => { app.scope.resize(); app.scope.touch(); scene.resize(); });
+// Stars, drawn once behind everything.
+function drawStars() {
+  const c = $('stars'), dpr = Math.min(devicePixelRatio || 1, 2), W = (c.width = Math.round(innerWidth * dpr)), H = (c.height = Math.round(innerHeight * dpr));
+  const g = c.getContext('2d'); let seed = 5011; const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+  g.clearRect(0, 0, W, H);
+  const n = Math.round((W * H) / (dpr * dpr) / 2600);
+  for (let i = 0; i < n; i++) {
+    const x = rnd() * W, y = rnd() * H, b = rnd(), r = (b > 0.96 ? 1.3 : b > 0.8 ? 0.9 : 0.6) * dpr;
+    g.fillStyle = `rgba(${look.line},${(0.18 + 0.6 * b * b).toFixed(2)})`;
+    g.fillRect(x - r / 2, y - r / 2, r, r);
+  }
+}
+const sizeFrame = () => { const b = frameBox(); frame.style.setProperty('--fw', `${b.w}px`); };
+window.addEventListener('resize', () => { app.scope.resize(); app.scope.touch(); scene.resize(); drawStars(); sizeFrame(); });
+drawStars(); sizeFrame();
 window.addEventListener('hashchange', () => route(false));
 app.scope.resize();
 build().then(() => route(true)).then(() => requestAnimationFrame(tick)).catch((e) => { ui.status.textContent = 'Could not load: ' + e.message; });

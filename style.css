@@ -25,6 +25,7 @@ body {
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
+#stars { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; z-index: 0; }
 #scope { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; z-index: 0; }
 
 header { position: fixed; inset: 0 0 auto 0; z-index: 2; padding: max(16px, env(safe-area-inset-top)) 16px 0; pointer-events: none; }
@@ -85,17 +86,13 @@ input[type="range"]::-moz-range-thumb { width: 3px; height: 22px; background: va
 .frame video { display: block; width: 100%; height: auto; }
 .frame figcaption { position: absolute; left: 0; bottom: 100%; padding: 0 0 4px; font: 600 11px var(--body); letter-spacing: 0.1em; text-transform: uppercase; }
 .frame a { color: var(--dim); text-decoration: none; }
-@media (max-width: 900px) { .frame { left: 50%; transform: translateX(-50%); top: 122px; bottom: auto; width: min(62vw, 300px); } .frame figcaption { display: none; } }
+@media (max-width: 900px) { .frame { left: 50%; transform: translateX(-50%); top: 112px; bottom: auto; width: var(--fw, 62vw); height: calc(var(--fw, 62vw) / 2); display: grid; align-items: center; } .frame figcaption { display: none; } }
 
 /* The 3D scene (machine, menu, flights) and the worlds to choose in it */
 #scene { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 1; display: block; pointer-events: none; }
 .hub { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
 .world { position: absolute; left: 0; top: 0; border-radius: 50%; background: none; border: 0; padding: 0; color: #fff; cursor: pointer; pointer-events: auto; }
-.world span { position: absolute; left: 50%; top: calc(100% + 8px); transform: translateX(-50%); white-space: nowrap;
-  font: 800 clamp(17px, 2.2vw, 26px)/1 var(--display); letter-spacing: 0.03em; text-transform: uppercase; }
 .world:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
-.world:focus-visible span { color: var(--accent); opacity: 1 !important; }
-@media (hover: hover) { .world:hover span { color: var(--accent); opacity: 1 !important; } }
 /* in the menu the sign on the machine carries the name */
 .in-menu h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .in-menu header .bar { justify-content: flex-end; }
