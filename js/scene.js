@@ -206,8 +206,14 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     g.clearRect(0, 0, W, H);                             // the stars are behind this canvas
     const gap = V.dot(V.sub(cam.c, geo.centre), geo.normal);            // how far in front of the glass the camera is
-    const outside = gap > 0;
-    const far1 = smooth((gap - 0.38) / 0.45);                            // 0 when pressed up to the glass: the machine's own lines fade there
+    // Are we looking at the screen, or in it? In a world, and swinging between worlds, we are always in it:
+    // the camera sits close to the glass there and the worlds' orbit would otherwise carry it back and forth
+    // across it. Flying in or out, we cross over once, close to the glass.
+    const outside = !move ? mode !== 'world' : move.glide ? false : gap > 0.2;
+    const far1 = outside ? smooth((gap - 0.38) / 0.45) : 0;             // 0 when close to the glass: the machine's own lines fade there
+    const tint = outside ? smooth((gap - 0.2) / 0.5) : 0;               // the dark glass thins out as we reach it
+    const open = 1 + 8 * Math.pow(1 - smooth((gap - 0.2) / 0.9), 2);    // and the frame opens up around us, so we never catch its edge
+    const win = scr.map((q) => V.add(geo.centre, V.mul(V.sub(q, geo.centre), open)));
 
     const dot = (v, b) => {
       if (v[2] <= NEAR) return;
@@ -217,6 +223,7 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
     const back = V.mul(geo.normal, -1);
     const innerAt = (q) => V.add(geo.centre, V.add(V.add(V.mul(geo.right, q[0]), V.mul(geo.up, q[1])), V.mul(back, q[2])));
     if (outside) {
+      g.globalAlpha = tint;
       for (const st of far) dot([V.dot(st.d, cam.r), V.dot(st.d, cam.u), V.dot(st.d, cam.f)], st.b);   // so far away that only the camera's turning moves them
       g.globalAlpha = content;
       for (const l of floor) { trace(cam, l, false); stroke(0.13, 1); }
@@ -226,7 +233,8 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
     // the space behind the glass, seen through the screen when we are in front of it
     g.save();
     if (outside) {
-      if (trace(cam, scr, true)) { g.fillStyle = '#03060a'; g.fill(); g.clip(); } else { g.beginPath(); g.rect(0, 0, 0, 0); g.clip(); }   // dark glass: the far stars stop at the frame
+      if (trace(cam, win, true)) { g.clip(); g.fillStyle = '#000'; g.fill(); g.globalAlpha = tint; g.fillStyle = '#03060a'; g.fill(); g.globalAlpha = 1; }   // dark glass: the far stars stop at the frame
+      else { g.beginPath(); g.rect(0, 0, 0, 0); g.clip(); }
     }
     // from a distance: the stars on the glass. Up close and inside: the ones deep behind it.
     if (outside && far1 > 0.01) { g.globalAlpha = far1; for (const st of glass) dot(view(cam, V.add(geo.centre, V.add(V.mul(geo.right, st.p[0] * geo.ws), V.mul(geo.up, st.p[1] * geo.hs)))), st.b); }
