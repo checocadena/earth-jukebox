@@ -65,7 +65,7 @@ const base = { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Fl
 const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let spinOn = !REDUCE, shownLon = null;
 let ds = null, world = null, playing = false, coast = null, scene = null;
-let ctx = null, out = null, pre = null, master = null, meters = null, wavUrl = null, lastSaid = 0, lastFrame = 0;
+let ctx = null, out = null, fxSends = {}, pre = null, master = null, meters = null, wavUrl = null, lastSaid = 0, lastFrame = 0;
 let muted = store.get('muted', false), volume = Math.max(0, Math.min(100, Number(store.get('volume', 80)) || 0));
 
 function say(text) { ui.live.textContent = ''; setTimeout(() => { ui.live.textContent = text; }, 40); lastSaid = performance.now(); caption(text); }
@@ -232,8 +232,10 @@ const turn = (dLon, dLat) => {
 // ---------- audio ----------
 // The space around the sound: a long reverb and an echo that bounces from side to side.
 // Built the same way for the live sound and for the WAV file.
+// Returns the inputs of the reverb and the echo, so a sound can be sent into them on its own.
 function buildFx(ac, input, fx, dest = ac.destination) {
   input.connect(dest);
+  const sends = {};
   if (fx.reverb > 0) {
     const len = Math.floor(ac.sampleRate * fx.reverbSeconds), ir = ac.createBuffer(2, len, ac.sampleRate);
     let seed = 20261114; const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2147483648) - 1;   // the same room every time
@@ -248,6 +250,7 @@ function buildFx(ac, input, fx, dest = ac.destination) {
     const conv = ac.createConvolver(); conv.buffer = ir;
     const wet = ac.createGain(); wet.gain.value = fx.reverb * 1.6;
     input.connect(conv).connect(wet).connect(dest);
+    sends.reverb = conv;
   }
   if (fx.delay > 0) {
     const dl = ac.createDelay(2), dr = ac.createDelay(2), fb = ac.createGain(), tone = ac.createBiquadFilter();
@@ -257,7 +260,9 @@ function buildFx(ac, input, fx, dest = ac.destination) {
     input.connect(mono).connect(dl); dl.connect(dr); dr.connect(tone).connect(fb).connect(dl);    // left, then right, then round again
     dl.connect(merge, 0, 0); dr.connect(merge, 0, 1);
     merge.connect(wet).connect(dest);
+    sends.delay = mono;
   }
+  return sends;
 }
 
 // Browsers only let sound start from a tap or a key. Every tap that leads somewhere calls this,
@@ -274,7 +279,7 @@ function unlockAudio() {
       const split = ctx.createChannelSplitter(2);
       pre.connect(split);
       meters = [0, 1].map((c) => { const a = ctx.createAnalyser(); a.fftSize = 1024; split.connect(a, c); return a; });
-      out = ctx.createGain(); buildFx(ctx, out, settings.effects, pre);
+      out = ctx.createGain(); fxSends = buildFx(ctx, out, settings.effects, pre);
       ctx.ready = ctx.audioWorklet.addModule('js/dsp.js');
     }
     ctx.resume();
@@ -302,10 +307,13 @@ function whoosh(seconds) {
     g.gain.linearRampToValueAtTime(level * 0.15, t0 + seconds * w.peakAt * 0.45);     // a slow start, then the swell
     g.gain.linearRampToValueAtTime(level, peak);
     g.gain.exponentialRampToValueAtTime(0.0005, end);
-    src.connect(bp).connect(g).connect(pre);
+    src.connect(bp).connect(g);
+    const tap = (to, amount) => { if (to && amount > 0) { const s = ctx.createGain(); s.gain.value = amount; g.connect(s).connect(to); } };
+    tap(pre, w.dry);
+    tap(fxSends.reverb, w.reverb);      // the same reverb and echo as the music, only more of them
+    tap(fxSends.delay, w.echo);
     whooshing = performance.now() + (end - t0) * 1000;
     caption('Sound: a rising whoosh as you fly into the arcade screen.');
-    if (w.room > 0) { const send = ctx.createGain(); send.gain.value = w.room; g.connect(send).connect(out); }
     src.start(t0); src.stop(end + 0.05);
   } catch {}
 }

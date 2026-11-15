@@ -53,15 +53,18 @@ export default {
 
   // PLACEHOLDER. A whoosh as the camera flies into the arcade screen after "Click to start".
   // It is noise through a filter, made live (no recording). It swells as the camera speeds up and
-  // dies away as the worlds appear. It only plays on that first flight.
-  //   level        loudness at its peak (0 = no whoosh). 0.35 sits well under the music.
+  // dies away as the worlds appear, then rings on in the reverb and the echo for a few seconds.
+  // It only plays on that first flight.
+  //   level        loudness at its peak before the mix below (0 = no whoosh)
+  //   dry          how much is heard straight, with no space around it
+  //   reverb echo  how much goes into the reverb and into the side to side echo (the same ones
+  //                the music uses). Raise these and lower dry for a farther, more spacey sound.
   //   fromHz toHz  the filter rises from fromHz to toHz on the way in, so it gets brighter
   //   q            how narrow the filter is: higher whistles more, lower is more breath
   //   peakAt       when it is loudest, as a share of the flight (the flight is 3.4 s, set in js/app.js)
-  //   tailSeconds  how long it takes to die away after the worlds appear
-  //   room         how much of it goes into the reverb and echo (0 = dry)
+  //   tailSeconds  how long the whoosh itself takes to die away after the worlds appear
   //   reducedMotionLevel  level when the system asks for less motion. There is no flight then, so 0.
-  whoosh: { level: 0.35, fromHz: 180, toHz: 1500, q: 0.9, peakAt: 0.82, tailSeconds: 0.7, room: 0.25, reducedMotionLevel: 0 },
+  whoosh: { level: 0.32, dry: 0.6, reverb: 1.4, echo: 3.5, fromHz: 180, toHz: 1500, q: 0.9, peakAt: 0.82, tailSeconds: 0.7, reducedMotionLevel: 0 },
 
   // ---- Map worlds (night lights, ocean) --------------------------------
   // PLACEHOLDER mapping. Each chosen line of latitude has a pitch. All read
