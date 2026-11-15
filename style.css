@@ -25,8 +25,7 @@ body {
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-#stars { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; z-index: 0; }
-#scope { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; z-index: 0; }
+#scope { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; z-index: 1; pointer-events: none; }
 
 header { position: fixed; inset: 0 0 auto 0; z-index: 2; padding: max(16px, env(safe-area-inset-top)) 16px 0; pointer-events: none; }
 header .bar { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
@@ -42,9 +41,10 @@ header nav { display: flex; gap: 8px; }
   background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 0 4px; min-height: 36px; cursor: pointer; }
 .tab[aria-current="true"] { color: #fff; border-bottom-color: var(--accent); }
 @media (hover: hover) { .tab:hover { color: #fff; } }
-.start { position: fixed; z-index: 6; left: 50%; bottom: max(10vh, 48px); transform: translateX(-50%); background: none; border: 0; cursor: pointer;
-  font: 800 22px/1 var(--display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); padding: 14px 20px; animation: blink 1.2s steps(1) infinite; }
-@keyframes blink { 50% { opacity: 0.25; } }
+.start { position: fixed; z-index: 6; left: 50%; bottom: max(9vh, 44px); transform: translateX(-50%); cursor: pointer; white-space: nowrap;
+  background: #000; border: 1px solid var(--accent); box-shadow: 0 0 0 4px #000, 0 0 22px rgb(255 190 0 / 0.25);
+  font: 800 22px/1 var(--display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); padding: 14px 22px; animation: blink 1.2s steps(1) infinite; }
+@keyframes blink { 50% { color: rgb(255 216 74 / 0.35); } }
 @media (prefers-reduced-motion: reduce) { .start { animation: none; } }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 9px 16px;
@@ -89,7 +89,7 @@ input[type="range"]::-moz-range-thumb { width: 3px; height: 22px; background: va
 @media (max-width: 900px) { .frame { left: 50%; transform: translateX(-50%); top: 112px; bottom: auto; width: var(--fw, 62vw); height: calc(var(--fw, 62vw) / 2); display: grid; align-items: center; } .frame figcaption { display: none; } }
 
 /* The 3D scene (machine, menu, flights) and the worlds to choose in it */
-#scene { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 1; display: block; pointer-events: none; }
+#scene { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 0; display: block; pointer-events: none; }
 .hub { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
 .world { position: absolute; left: 0; top: 0; border-radius: 50%; background: none; border: 0; padding: 0; color: #fff; cursor: pointer; pointer-events: auto; }
 .world:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }

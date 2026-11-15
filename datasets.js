@@ -30,9 +30,9 @@ export default [
       'Every lightning flash the Lightning Imaging Sensor on the International Space Station saw from March 2017 to 2023. ' +
       'The station only passes over the tropics and middle latitudes, so the far north and south are silent.',
     sound: [
-      'One flash is one strike. Lightning makes the space between the ground and the upper atmosphere resonate at 7.8, 14, 20, 27 and 33 hertz. Here every flash strikes those five pitches, moved up five octaves so you can hear them. The pitches are the planet\'s. How long they ring is our choice: the real resonance dies away faster.',
-      'Left on the globe is your left ear. You hear the side of the Earth that faces you, and the Earth turns while it plays. The slider is how fast time runs. Slow, you hear single flashes. Faster, they merge into a chord that swells each summer. Fastest, a whole year passes in a few thousandths of a second and the seasons themselves become the pitch.',
-      'The line around the rim is the calendar: January at the top, going clockwise. Its height is how much lightning the visible side had, and the bright dot is now. Flashes leave a mark that fades, so you can watch lightning move north and south with the seasons.',
+      'Rain on a music box. A flash plucks the note of the line of latitude nearest to it. There are thousands of flashes a second, so only a fixed share of them pluck: stormy months play more notes and quiet months fewer. Underneath, very quietly, every single flash is a click.',
+      'The notes come from the shape of the planet, as in the other worlds: lines nearer the poles are shorter circles, so they sound higher. Left on the globe is your left ear. You hear the side of the Earth that faces you, and the Earth turns while it plays.',
+      'The slider is how fast time runs. The line around the rim is the calendar: January at the top, going clockwise. Its height is how much lightning the visible side had, and the bright dot is now. Flashes leave a mark that fades, so you can watch lightning move north and south with the seasons.',
     ],
     speedKeys: 'Faster or slower',
     timeKeys: 'Back or forward one month',
@@ -84,8 +84,8 @@ export default [
       'The temperature of the sea surface through one year, March 2007 to March 2008, from the ECCO2 ocean model. Bright is warm. ' +
       'The warm water moves north and south with the sun, and currents carry it along the edges of the continents.',
     sound: [
-      'A slow held chord. Each line across the globe is a voice, and the water temperature along it shapes the voice. Where a line crosses a warm current next to cold water the voice grows, and where the water is all one temperature it fades. Land adds nothing.',
-      'The notes come from the shape of the planet, as in Night lights, but lower and with no plucking: lines nearer the poles are shorter circles, so they sound higher. The Earth turns while it plays and the year goes by, so the chord shifts as the warm water moves.',
+      'A slow held chord with low bells. Each line across the globe is a voice, and the water temperature along it shapes the voice. When the place where warm water meets cold on a line crosses the middle of the globe, it rings that line\'s note as a bell: the Gulf Stream, the cold water off Peru, the edges of the warm pools. Land adds nothing.',
+      'The notes come from the shape of the planet, as in the other worlds, but lower: lines nearer the poles are shorter circles, so they sound higher. The Earth turns while it plays and the year goes by, so the chord and the bells shift as the warm water moves.',
     ],
     quiet: 'The water on this side is close to one temperature along each line.',
     speedKeys: 'Higher or lower pitch',

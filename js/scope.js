@@ -36,6 +36,32 @@ export function makeScope(canvas, cfg, look, opts = {}) {
     baseDirty = true;
   }
 
+  // Where each 1-degree cell is on the globe at its exact angle now (not rounded to a
+  // whole degree), so dots turn with the coastline instead of stepping. A cell is a row
+  // (latitude) and a column (longitude): rows only need redoing when the tilt changes.
+  const RAD = Math.PI / 180;
+  const rowA = new Float32Array(180), rowB = new Float32Array(180), rowC = new Float32Array(180), rowD = new Float32Array(180), rowE = new Float32Array(180);
+  const colS = new Float32Array(360), colC = new Float32Array(360);
+  let rowsFor = null, colsFor = null;
+  function place() {
+    if (rowsFor !== lat0) {
+      rowsFor = lat0;
+      const s0 = Math.sin(lat0 * RAD), c0 = Math.cos(lat0 * RAD);
+      for (let r = 0; r < 180; r++) {
+        const p = (89.5 - r) * RAD, sp = Math.sin(p), cp = Math.cos(p);
+        rowA[r] = cp; rowB[r] = c0 * sp; rowC[r] = s0 * cp; rowD[r] = s0 * sp; rowE[r] = c0 * cp;
+      }
+    }
+    if (colsFor !== lon0) {
+      colsFor = lon0;
+      for (let c = 0; c < 360; c++) { const l = (c - 179.5 - lon0) * RAD; colS[c] = Math.sin(l); colC[c] = Math.cos(l); }
+    }
+  }
+  // x across, y up, z toward the viewer, for cell i
+  const cellX = (i) => rowA[(i / 360) | 0] * colS[i % 360];
+  const cellY = (i) => { const r = (i / 360) | 0; return rowB[r] - rowC[r] * colC[i % 360]; };
+  const cellZ = (i) => { const r = (i / 360) | 0; return rowD[r] + rowE[r] * colC[i % 360]; };
+
   function beam(ctx, alpha, widthCore, draw, data) {   // glow pass then core, like a CRT beam
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.strokeStyle = `rgba(${data ? DG : G},${alpha * 0.22})`; ctx.lineWidth = widthCore * 4.5 * dpr; ctx.beginPath(); draw(ctx); ctx.stroke();
@@ -80,8 +106,9 @@ export function makeScope(canvas, cfg, look, opts = {}) {
   // blips: Int32 cell ids; proj: {x,y,z} per cell
   function frame({ blips, count, proj, seen, field, skylines, showMarker, trace, traceAge }) {
     if (baseDirty) drawBase();
-    if (seen && (heatDirty || ++heatAge > 5)) drawHeat(seen, proj);
-    if (field && (heatDirty || ++heatAge > 2)) drawField(field, proj);
+    place();
+    if (seen) drawHeat(seen);                             // every frame, at the exact angle
+    if (field) drawField(field);
 
     // afterglow
     pg.globalCompositeOperation = 'destination-out';
@@ -92,14 +119,14 @@ export function makeScope(canvas, cfg, look, opts = {}) {
       const jit = R * 0.0175, s1 = 4.5 * dpr, s2 = 1.6 * dpr;   // jitter fills the 1-degree cell
       pg.fillStyle = `rgba(${DG},0.28)`;
       for (let i = 0; i < count; i++) {
-        const c = blips[i]; if (proj.z[c] <= 0) continue;
-        const x = cx + proj.x[c] * R + (hash(i * 2 + c) - 0.5) * jit, y = cy - proj.y[c] * R + (hash(i * 2 + 1 + c) - 0.5) * jit;
+        const c = blips[i]; if (cellZ(c) <= 0) continue;
+        const x = cx + cellX(c) * R + (hash(i * 2 + c) - 0.5) * jit, y = cy - cellY(c) * R + (hash(i * 2 + 1 + c) - 0.5) * jit;
         pg.fillRect(x - s1 / 2, y - s1 / 2, s1, s1);
       }
       pg.fillStyle = `rgba(${DP},0.95)`;
       for (let i = 0; i < count; i++) {
-        const c = blips[i]; if (proj.z[c] <= 0) continue;
-        const x = cx + proj.x[c] * R + (hash(i * 2 + c) - 0.5) * jit, y = cy - proj.y[c] * R + (hash(i * 2 + 1 + c) - 0.5) * jit;
+        const c = blips[i]; if (cellZ(c) <= 0) continue;
+        const x = cx + cellX(c) * R + (hash(i * 2 + c) - 0.5) * jit, y = cy - cellY(c) * R + (hash(i * 2 + 1 + c) - 0.5) * jit;
         pg.fillRect(x - s2 / 2, y - s2 / 2, s2, s2);
       }
     }
@@ -154,28 +181,37 @@ export function makeScope(canvas, cfg, look, opts = {}) {
   }
 
   // A map of values, one dot per cell. field: Float32 0..1 per cell.
-  function drawField(field, proj) {
-    heatDirty = false; heatAge = 0;
+  function drawField(field) {
     hg.clearRect(0, 0, w, h);
-    const size = Math.max(1.2 * dpr, R * 0.013);
-    for (let i = 0; i < field.length; i++) {
-      const v = field[i]; if (v < 0.04 || proj.z[i] <= 0.02) continue;
-      hg.fillStyle = `rgba(${DP},${Math.min(1, v * 1.1).toFixed(2)})`;
-      hg.fillRect(cx + proj.x[i] * R - size / 2, cy - proj.y[i] * R - size / 2, size, size);
+    const size = Math.max(1.2 * dpr, R * 0.013), half = size / 2;
+    let last = -1;
+    for (let r = 0, i = 0; r < 180; r++) {
+      const A = rowA[r], B = rowB[r], C = rowC[r], D = rowD[r], E = rowE[r];
+      for (let c = 0; c < 360; c++, i++) {
+        const v = field[i]; if (v < 0.04) continue;
+        const cl = colC[c]; if (D + E * cl <= 0.02) continue;          // far side
+        const q = Math.min(20, (v * 22) | 0);                           // a few levels of brightness, so the colour is set rarely
+        if (q !== last) { hg.fillStyle = `rgba(${DP},${(q / 20).toFixed(2)})`; last = q; }
+        hg.fillRect(cx + A * colS[c] * R - half, cy - (B - C * cl) * R - half, size, size);
+      }
     }
   }
 
   // Faint marks where flashes have been. seen: Float32 count per cell.
-  function drawHeat(seen, proj) {
-    heatDirty = false; heatAge = 0;
+  function drawHeat(seen) {
     hg.clearRect(0, 0, w, h);
-    const k = 1 / Math.log(1 + 25), size = Math.max(1.2 * dpr, R * 0.011);   // 25 flashes in a cell = full mark
-    for (let i = 0; i < seen.length; i++) {
-      const c = seen[i]; if (c < 0.05 || proj.z[i] <= 0.02) continue;
-      const v = Math.min(1, Math.log(1 + c) * k), alpha = 0.5 * v * v;     // only the busy places show
-      if (alpha < 0.012) continue;
-      hg.fillStyle = `rgba(${DG},${alpha.toFixed(3)})`;
-      hg.fillRect(cx + proj.x[i] * R - size / 2, cy - proj.y[i] * R - size / 2, size, size);
+    const k = 1 / Math.log(1 + 25), size = Math.max(1.2 * dpr, R * 0.011), half = size / 2;   // 25 flashes in a cell = full mark
+    let last = -1;
+    for (let r = 0, i = 0; r < 180; r++) {
+      const A = rowA[r], B = rowB[r], C = rowC[r], D = rowD[r], E = rowE[r];
+      for (let c = 0; c < 360; c++, i++) {
+        const n = seen[i]; if (n < 0.05) continue;
+        const cl = colC[c]; if (D + E * cl <= 0.02) continue;
+        const v = Math.min(1, Math.log(1 + n) * k), q = (v * v * 20) | 0;  // only the busy places show
+        if (q < 1) continue;
+        if (q !== last) { hg.fillStyle = `rgba(${DG},${(q / 40).toFixed(3)})`; last = q; }
+        hg.fillRect(cx + A * colS[c] * R - half, cy - (B - C * cl) * R - half, size, size);
+      }
     }
   }
 

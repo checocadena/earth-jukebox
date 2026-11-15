@@ -125,7 +125,8 @@ async function route(first) {
   const d = datasets.find((x) => x.id === location.hash.slice(1)) || null;
   if (d === ds && !first) return;
   const from = ds;
-  await setPlaying(false);
+  if (world && playing) fade(world, 0);                   // the world we leave fades out behind us
+  playing = false; ui.play.textContent = 'Play';
   ds = d; world = null;
   showNasa(false);
   ui.download.hidden = true; ui.status.textContent = '';
@@ -144,11 +145,7 @@ async function route(first) {
   $('intro').textContent = `${d.about} Space plays and pauses. Left and right arrows turn the globe, shift with up and down tilts it. ` +
     `Up and down arrows: ${d.speedKeys.toLowerCase()}. Comma and full stop: ${d.timeKeys.toLowerCase()}. Square brackets fly to the next or previous world. ` +
     "D says what is playing. W makes a WAV file. S stops or starts the turning. Escape goes back to the menu. NASA's own animation is shown beside the globe.";
-  const arrive = () => {
-    ui.globe.focus({ preventScroll: true });
-    say(`${d.title}. ${d.about}`);
-    setPlaying(true, true);                                // starts by itself; if the browser will not allow it yet, Play is there
-  };
+  const arrive = () => { ui.globe.focus({ preventScroll: true }); say(`${d.title}. ${d.about}`); if (!playing) setPlaying(true, true); };
   if (first) scene.set({ mode: 'world', i });
   else scene.go({ mode: 'world', i }, from ? 1.5 : 1.3, arrive);
   const w = await p.loading;
@@ -159,11 +156,13 @@ async function route(first) {
   shownLon = null; setView(p.lon, p.lat, true);
   showNasa(true);                                          // NASA's own frame is always beside ours
   readouts(true);
+  setPlaying(true, true);                                  // sound starts by itself and fades in as we fly; if the browser will not allow it yet, Play is there
   if (first) arrive();
 }
 
 // The machine, seen from a child's height, waiting for a tap.
 function attract() {
+  ui.start.textContent = matchMedia('(pointer: coarse)').matches ? 'Tap to start' : 'Click to start';
   ui.start.hidden = false; ui.start.focus({ preventScroll: true });
   const begin = () => {
     if (ui.start.hidden) return;
@@ -244,7 +243,19 @@ async function ensureAudio() {
   unlockAudio();
   await ctx.ready;
   const node = world.start(ctx);
-  if (!node.wired) { node.connect(out); node.wired = true; }
+  if (!node.level) { node.level = ctx.createGain(); node.level.gain.value = 0; node.connect(node.level).connect(out); }   // each world has its own fader
+  voices.set(world, node);
+}
+
+// Worlds fade into each other. Going to another world, the one you leave fades out while the new one fades in.
+const voices = new Map();          // world -> its sound node
+const FADE = 1.6;
+function fade(w, to, seconds = FADE) {
+  const node = voices.get(w); if (!node || !ctx) return;
+  const g = node.level.gain, t = ctx.currentTime;
+  g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(to, t + seconds);
+  clearTimeout(node.stopper);
+  if (to === 0) node.stopper = setTimeout(() => { if (w !== world || !playing) w.setPlaying(false); }, seconds * 1000 + 60);
 }
 
 // quiet: this was not asked for by a tap (sound starting by itself), so say nothing if it cannot start
@@ -258,7 +269,8 @@ async function setPlaying(on, quiet) {
   }
   const was = playing;
   playing = on;
-  world?.setPlaying(on);
+  if (on) { world.setPlaying(true); fade(world, 1, quiet ? FADE : 0.15); }
+  else if (world) fade(world, 0, 0.25);                   // a short fade, so a pause does not click
   ui.play.textContent = on ? 'Pause' : 'Play';
   if (world && on !== was && !quiet) say(on ? world.describe() : 'Paused. ' + world.describe());
 }
@@ -297,14 +309,14 @@ function tick(now) {
   // How much of the picture is the 3D scene, and how much the big globe. They show the same
   // world in the same place, so one fades into the other at the end of a flight in.
   let sceneAlpha = scene.mode === 'world' && !moving ? 0 : 1;
-  if (sceneAlpha) {
-    drawPictures();
-    const s = scene.frame(dt);
-    if (s.moving && s.moving.to.mode === 'world') sceneAlpha = 1 - smooth((s.moving.k - 0.78) / 0.22);
-    placeButtons(s);
+  if (sceneAlpha) drawPictures();
+  if (moving && scene.moving) {                           // fade into the big globe at the end of a flight in
+    const m = scene.progress;
+    if (m && m.to.mode === 'world') sceneAlpha = 1 - smooth((m.k - 0.78) / 0.22);
   }
+  const s = scene.frame(dt, sceneAlpha);                  // the stars are always drawn; the rest fades with sceneAlpha
+  if (sceneAlpha) placeButtons(s);
   const worldAlpha = world ? 1 - sceneAlpha : 0;
-  ui.sceneCanvas.style.opacity = String(sceneAlpha);
   ui.scopeCanvas.style.opacity = String(worldAlpha);
   ui.player.style.opacity = String(worldAlpha); ui.tabs.style.opacity = String(ds ? Math.max(worldAlpha, 0.35) : 0);
   frame.style.opacity = String(worldAlpha);
@@ -451,6 +463,7 @@ document.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey || ui.about.open) return;
   const tag = e.target.tagName, k = e.key;
   if (k === 'i' || k === '?') { e.preventDefault(); showInfo(); return; }
+  if (k === 'Escape' && !ds && scene.mode === 'menu' && !scene.moving) { e.preventDefault(); scene.go({ mode: 'attract' }, 1.6, attract); return; }   // back to the start
   if (!world || scene.moving) return;
   if (k === 'Escape') { e.preventDefault(); goHome(); return; }
   if (tag === 'INPUT') return;                               // sliders keep their own arrow keys
@@ -474,21 +487,9 @@ document.addEventListener('keydown', (e) => {
   act();
 });
 
-// Stars, drawn once behind everything.
-function drawStars() {
-  const c = $('stars'), dpr = Math.min(devicePixelRatio || 1, 2), W = (c.width = Math.round(innerWidth * dpr)), H = (c.height = Math.round(innerHeight * dpr));
-  const g = c.getContext('2d'); let seed = 5011; const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
-  g.clearRect(0, 0, W, H);
-  const n = Math.round((W * H) / (dpr * dpr) / 2600);
-  for (let i = 0; i < n; i++) {
-    const x = rnd() * W, y = rnd() * H, b = rnd(), r = (b > 0.96 ? 1.3 : b > 0.8 ? 0.9 : 0.6) * dpr;
-    g.fillStyle = `rgba(${look.line},${(0.18 + 0.6 * b * b).toFixed(2)})`;
-    g.fillRect(x - r / 2, y - r / 2, r, r);
-  }
-}
 const sizeFrame = () => { const b = frameBox(); frame.style.setProperty('--fw', `${b.w}px`); };
-window.addEventListener('resize', () => { app.scope.resize(); app.scope.touch(); scene.resize(); drawStars(); sizeFrame(); });
-drawStars(); sizeFrame();
+window.addEventListener('resize', () => { app.scope.resize(); app.scope.touch(); scene.resize(); sizeFrame(); });
+sizeFrame();
 window.addEventListener('hashchange', () => route(false));
 app.scope.resize();
 build().then(() => route(true)).then(() => requestAnimationFrame(tick)).catch((e) => { ui.status.textContent = 'Could not load: ' + e.message; });

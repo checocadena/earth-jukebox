@@ -12,6 +12,35 @@
 // Safety only: bursts far above the average rate would clip, so the top is rounded off.
 const soft = (x) => { const a = x < 0 ? -x : x; return a < 0.7 ? x : Math.sign(x) * (0.7 + 0.3 * Math.tanh((a - 0.7) / 0.3)); };
 
+// Plucked notes: a sine with two quieter overtones that die away sooner, like a music box
+// tooth. Shared by every world.
+export class Plucks {
+  constructor(sampleRate) { this.sr = sampleRate; this.list = []; }
+  // delaySeconds lets several notes asked for at once fall at slightly different moments
+  add(freq, gainL, gainR, decaySeconds, delaySeconds = 0) {
+    if (freq > this.sr * 0.2) return;
+    if (this.list.length >= 32) this.list.shift();
+    this.list.push({ w: (2 * Math.PI * freq) / this.sr, p: 0, gl: gainL, gr: gainR, e: 0, up: 1 / (0.003 * this.sr), wait: Math.round(delaySeconds * this.sr),
+      d1: Math.exp(-1 / (decaySeconds * this.sr)), d2: Math.exp(-1 / (decaySeconds * 0.35 * this.sr)), a1: 1, a2: 1 });
+  }
+  clear() { this.list.length = 0; }
+  // adds to what is already in left and right
+  render(left, right, n) {
+    for (let q = this.list.length - 1; q >= 0; q--) {
+      const v = this.list[q];
+      let s = 0;
+      if (v.wait > 0) { s = Math.min(n, v.wait); v.wait -= s; }
+      for (; s < n; s++) {
+        if (v.e < 1) v.e = Math.min(1, v.e + v.up);
+        const x = (Math.sin(v.p) * v.a1 + (Math.sin(2 * v.p) * 0.3 + Math.sin(3.01 * v.p) * 0.12) * v.a2) * v.e;
+        left[s] += x * v.gl; right[s] += x * v.gr;
+        v.p += v.w; v.a1 *= v.d1; v.a2 *= v.d2;
+      }
+      if (v.a1 < 0.0008) this.list.splice(q, 1);
+    }
+  }
+}
+
 export class Audifier {
   constructor(sampleRate, cfg) {
     this.sr = sampleRate;
@@ -25,6 +54,8 @@ export class Audifier {
     this.hpL = { x: 0, y: 0 }; this.hpR = { x: 0, y: 0 };
     this.lpL = 0; this.lpR = 0;
     this.seed = 0x9e3779b9;
+    this.plucks = new Plucks(sampleRate);
+    this.bed = cfg.worlds?.lightning?.bed ?? 1;       // level of the clicks themselves, under the plucked notes
     this.ref = { gMean: 0.25, gRms: 0.4 };
     this.setRing(cfg.ring);   // mean and RMS gain of an event at the reference view
   }
@@ -123,8 +154,8 @@ export class Audifier {
 
   // Fill left and right with `n` samples.
   process(left, right, n = left.length) {
-    if (!this.ready || !this.playing) { left.fill(0, 0, n); right.fill(0, 0, n); return; }
-    const c = this.cfg, sr = this.sr;
+    if (!this.ready || !this.playing) { left.fill(0, 0, n); right.fill(0, 0, n); this.plucks.clear(); return; }
+    const c = this.cfg, sr = this.sr, bed = this.bed;
     const dd = this.speed / sr;                         // days per sample
     const lam = this.meanPerDay * dd;                   // events per sample, whole planet
     const lp = 1 - Math.exp(-2 * Math.PI * Math.min(c.click.lowpassHz, sr * 0.45) / sr);
@@ -194,7 +225,7 @@ export class Audifier {
       }
       const yl = l - this.hpL.x + hp * this.hpL.y; this.hpL.x = l; this.hpL.y = yl;
       const yr = r - this.hpR.x + hp * this.hpR.y; this.hpR.x = r; this.hpR.y = yr;
-      left[s] = soft(yl * c.master); right[s] = soft(yr * c.master);
+      left[s] = yl * bed; right[s] = yr * bed;
 
       this.day = next;
       if (this.day >= end) {
@@ -202,6 +233,8 @@ export class Audifier {
         else { this.playing = false; this.ended = true; left.fill(0, s + 1, n); right.fill(0, s + 1, n); break; }
       }
     }
+    this.plucks.render(left, right, n);
+    for (let s = 0; s < n; s++) { left[s] = soft(left[s] * c.master); right[s] = soft(right[s] * c.master); }
   }
 }
 
@@ -217,17 +250,11 @@ export class Scanner {
     this.freq = cfg.scan.startHz; this.playing = false; this.builtFor = this.freq;
     this.voices = [];
     this.harmonics = cfg.scan.harmonics;
-    this.plucks = [];                                      // notes ringing now
+    this.plucks = new Plucks(sampleRate);                  // notes ringing now
     this.hpL = { x: 0, y: 0 }; this.hpR = { x: 0, y: 0 };
   }
 
-  // A plucked note: a sine with two quieter overtones that die away sooner, like a music box tooth.
-  pluck(freq, gainL, gainR, decaySeconds) {
-    if (freq > this.sr * 0.2) return;
-    if (this.plucks.length >= 28) this.plucks.shift();
-    const w = (2 * Math.PI * freq) / this.sr;
-    this.plucks.push({ w, p: 0, gl: gainL, gr: gainR, e: 0, up: 1 / (0.003 * this.sr), d1: Math.exp(-1 / (decaySeconds * this.sr)), d2: Math.exp(-1 / (decaySeconds * 0.35 * this.sr)), a1: 1, a2: 1 });
-  }
+  pluck(freq, gainL, gainR, decaySeconds, delaySeconds) { this.plucks.add(freq, gainL, gainR, decaySeconds, delaySeconds); }
 
   // list: [{ ratio, L, R }], L and R Float32Array. Crossfades each voice from its old pair.
   setTables(list) {
@@ -264,7 +291,7 @@ export class Scanner {
   }
 
   process(left, right, n = left.length) {
-    if (!this.voices.length || !this.playing) { left.fill(0, 0, n); right.fill(0, 0, n); this.plucks.length = 0; return; }
+    if (!this.voices.length || !this.playing) { left.fill(0, 0, n); right.fill(0, 0, n); this.plucks.clear(); return; }
     const c = this.cfg, sr = this.sr;
     if (Math.abs(this.freq / this.builtFor - 1) > 0.03) {         // pitch moved: rebuild the smoothed tables
       this.builtFor = this.freq;
@@ -289,17 +316,7 @@ export class Scanner {
       }
       v.phase = ph;
     }
-    for (let q = this.plucks.length - 1; q >= 0; q--) {
-      const v = this.plucks[q];
-      for (let s = 0; s < n; s++) {
-        if (v.e < 1) v.e = Math.min(1, v.e + v.up);
-        const x = (Math.sin(v.p) * v.a1 + (Math.sin(2 * v.p) * 0.3 + Math.sin(3.01 * v.p) * 0.12) * v.a2) * v.e;
-        left[s] += x * v.gl; right[s] += x * v.gr;
-        v.p += v.w; v.a1 *= v.d1; v.a2 *= v.d2;
-      }
-      if (v.p > 1e6) v.p %= Math.PI * 2 * 100;
-      if (v.a1 < 0.0008) this.plucks.splice(q, 1);
-    }
+    this.plucks.render(left, right, n);
     for (let s = 0; s < n; s++) {
       const l = left[s], r = right[s];
       const yl = l - this.hpL.x + hp * this.hpL.y; this.hpL.x = l; this.hpL.y = yl;
@@ -321,6 +338,7 @@ if (typeof AudioWorkletProcessor !== 'undefined') {
         if (m.data) a.setData(m.data);
         if (m.view) a.setView(m.view);
         if (m.ring) a.setRing(m.ring);
+        if (m.pluck) for (const q of m.pluck) a.plucks.add(q[0], q[1], q[2], q[3], q[4]);
         if (m.speed !== undefined) { a.speed = m.speed; a.seek(a.day); }
         if (m.seek !== undefined) a.seek(m.seek);
         if (m.playing !== undefined) { a.playing = m.playing; a.ended = false; }
@@ -348,7 +366,7 @@ if (typeof AudioWorkletProcessor !== 'undefined') {
         if (m.freq !== undefined) a.freq = m.freq;
         if (m.harmonics) a.harmonics = m.harmonics;
         if (m.tables) a.setTables(m.tables);
-        if (m.pluck) for (const q of m.pluck) a.pluck(q[0], q[1], q[2], q[3]);
+        if (m.pluck) for (const q of m.pluck) a.pluck(q[0], q[1], q[2], q[3], q[4]);
         if (m.playing !== undefined) a.playing = m.playing;
       };
     }

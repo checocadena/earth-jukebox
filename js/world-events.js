@@ -31,6 +31,11 @@ export async function createEventsWorld(ds, app) {
   for (let i = 0; i < cells.length; i += 3) total[cells[i]] += 0.4;
   seen.set(total);
   const trace = Object.assign(new Float32Array(120), { frac: new Float32Array(120) });
+  // Plucked notes: a flash plucks the note of the line of latitude nearest to it (same notes as the map worlds).
+  const snd = settings.worlds?.lightning || {}, pk = snd.pluck;
+  const noteLats = [...new Set(settings.scan.linesDegrees.map((l) => Math.abs(l)))].sort((a, b) => a - b);
+  const ratioFor = (lat) => { let best = noteLats[0]; for (const l of noteLats) if (Math.abs(l - Math.abs(lat)) < Math.abs(best - Math.abs(lat))) best = l; return 1 / Math.cos((best * Math.PI) / 180); };
+  let owed = 0;
 
   // Levels are set against the starting view, so quiet sides of the Earth stay quiet.
   const refProj = { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Float32Array(CELLS) };
@@ -54,6 +59,25 @@ export async function createEventsWorld(ds, app) {
     let s = 0;
     for (let f = f0; f <= f1; f++) s += curveL[f] + curveR[f];
     return s / (frameDay[f1 + 1] - frameDay[f0]) / curveRef;
+  }
+  // which event is playing at day d
+  const indexAt = (d) => { const f = frameOf(Math.max(0, Math.min(endDay - 1e-3, d))); return frameStart[f] + Math.floor((frameStart[f + 1] - frameStart[f]) * Math.min(1, (d - frameDay[f]) / (frameDay[f + 1] - frameDay[f]))); };
+  // Some flashes pluck a note. How many: a fixed share of all flashes, set so an average moment gives
+  // about pk.perSecond notes, so stormy months play more and quiet months less.
+  // proj: where the cells are; span: seconds the notes are spread over; emit(freq, gainL, gainR, decay, delay).
+  function pluckSome(i0, n, proj, span, emit) {
+    if (!pk || n <= 0) return;
+    const want = Math.max(0.6, Math.min(pk.maxPerSecond, pk.perSecond * Math.sqrt(speed / settings.speed.start)));
+    owed = Math.min(8 + span * 30, owed + n * (want / ((cells.length / endDay) * speed)) * 2.5);   // about 4 in 10 flashes are on the near side
+    let made = 0; const most = 6 + span * 30;
+    while (owed >= 1 && made < most) {
+      owed -= 1;
+      const c = cells[i0 + Math.floor(Math.random() * n)], z = proj.z[c];
+      if (z <= 0.05) continue;                              // on the far side: silent
+      const amp = pk.level * (0.55 + 0.45 * z) * 0.5, a = ((proj.x[c] + 1) * Math.PI) / 4;
+      emit(snd.rootHz * ratioFor(89.5 - Math.floor(c / 360)), amp * Math.cos(a), amp * Math.sin(a), pk.decaySeconds, Math.random() * span);
+      made++;
+    }
   }
   const fastAll = () => speed > 730;   // more than two years a second: no single date makes sense
   const viewMsg = () => ({ gL: gL.slice(), gR: gR.slice(), curveL: curveL.slice(), curveR: curveR.slice() });
@@ -127,12 +151,12 @@ export async function createEventsWorld(ds, app) {
         let d0 = lastDrawDay; const d1 = day;
         if (d1 < d0 || d1 - d0 > 400) d0 = Math.max(0, d1 - Math.min(400, speed / 30));   // looped or jumped
         days = d1 - d0;
-        const idx = (d) => { const f = frameOf(d); return frameStart[f] + Math.floor((frameStart[f + 1] - frameStart[f]) * Math.min(1, (d - frameDay[f]) / (frameDay[f + 1] - frameDay[f]))); };
-        const i0 = idx(d0), n = Math.max(0, idx(d1) - i0), cap = blips.length;
+        const i0 = indexAt(d0), n = Math.max(0, indexAt(d1) - i0), cap = blips.length;
         if (n <= cap) { for (let i = 0; i < n; i++) blips[i] = cells[i0 + i]; count = n; }
         else { for (let i = 0; i < cap; i++) blips[i] = cells[i0 + Math.floor(Math.random() * n)]; count = cap; }
         for (let i = 0; i < count; i++) seen[blips[i]]++;
         lastDrawDay = d1;
+        if (node) { const hits = []; pluckSome(i0, n, app.proj, dt, (...q) => hits.push(q)); if (hits.length) node.port.postMessage({ pluck: hits }); }
       }
       // A mark fades with the data: it halves every markHalfLifeDays days of data
       // (never faster than a quarter of a second, so fast playback still shows).
@@ -185,6 +209,8 @@ export async function createEventsWorld(ds, app) {
           a.setView({ gL: wL, gR: wR, curveL: cL, curveR: cR });
         }
         const n = Math.min(chunk, total - i);
+        const j0 = indexAt(a.day), j1 = indexAt(Math.min(endDay - 1e-3, a.day + (speed * n) / sr));
+        if (j1 > j0) pluckSome(j0, j1 - j0, turn ? proj : app.proj, n / sr, (f, l, r, dec, wait) => a.plucks.add(f, l, r, dec, wait));
         a.process(L.subarray(i, i + n), R.subarray(i, i + n), n);
         if (i % (sr * 2) < chunk) await progress((i + n) / total);
       }

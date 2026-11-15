@@ -29,14 +29,15 @@ export default {
   level: { click: 0.6, hiss: 0.07, tone: 0.16, hissInTone: true },
   // PLACEHOLDER click colour. A flash is a single-sample click through a
   // low-pass filter. 20000 = raw click, thin and bright. 1500 = a soft thud.
-  click: { lowpassHz: 5000 },
+  click: { lowpassHz: 2500 },
   highpassHz: 20,       // removes the inaudible slow offset
   master: 0.9,
   // Above this many events per sample the engine reads the per-frame rate
   // curve and stops adding single clicks (same signal, far less work).
   curveAboveEventsPerSample: 6,
 
-  // The chord, always on (Checo's call). PLACEHOLDER amounts. Lightning makes the space between the ground
+  // OFF (mix 0): Checo found it too eerie. The chord now comes from plucked notes (see `worlds`).
+  // Set mix to 0.9 to hear it again. What it is: Lightning makes the space between the ground
   // and the upper atmosphere resonate at 7.83, 14.3, 20.8, 27.3 and 33.8 Hz
   // (the Schumann resonances). Moved up `octavesUp` octaves these are five
   // audible pitches, and every click strikes all five.
@@ -44,7 +45,7 @@ export default {
   //   decaySeconds  how long a struck pitch rings. Long = smooth held tones.
   //                 Short (0.02) = closer to the real, dull resonance, and buzzy.
   // Try from the address bar: ?chord=1  or  ?chord=0.7&decay=1.5&octaves=6
-  ring: { mix: 0.9, onMix: 0.9, octavesUp: 5, modesHz: [7.83, 14.3, 20.8, 27.3, 33.8], decaySeconds: 0.8 },
+  ring: { mix: 0, onMix: 0.9, octavesUp: 5, modesHz: [7.83, 14.3, 20.8, 27.3, 33.8], decaySeconds: 0.8 },
 
   // PLACEHOLDER amounts. Space around the sound: a long reverb and an echo that
   // bounces from side to side. 0 = none, 1 = as much echo or reverb as direct sound.
@@ -71,12 +72,20 @@ export default {
   //   pad      held voices: one per line, shaped by the data along the line on the near side.
   //            level 0 = none. harmonics low = soft and round, high = bright and buzzy.
   //            octave moves the held voices up or down against the plucked ones.
-  //   pluck    a music box: the Earth is the drum and bright places are the pins. When a
-  //            bright place on a line crosses the middle of the globe it plucks that line's note.
-  //            threshold = how bright (0 to 1) a place must be. null = no plucking.
+  //   pluck    a music box: the Earth is the drum and the data are the pins. `on` says what
+  //            plucks: 'peak' = a bright place, 'front' = a sharp change along the line.
+  //            It plucks that line's note as it crosses the middle of the globe. null = none.
   worlds: {
-    lights: { rootHz: 220, pad: { level: 0.05, harmonics: 3, octave: -1 }, pluck: { level: 0.36, threshold: 0.25, decaySeconds: 1.8 } },
-    ocean:  { rootHz: 73.42, pad: { level: 0.3, harmonics: 3, octave: 0 }, pluck: null },
+    // Lightning: flashes pluck notes, like rain on a music box. A flash plucks the note of the
+    // line of latitude nearest to it. Only some flashes pluck (there are thousands a second):
+    // about `perSecond` at the starting speed, more in stormy months, fewer in quiet ones.
+    // bed = level of the click-per-flash sound underneath (0 = none, 1 = as it was).
+    lightning: { rootHz: 293.66, bed: 0.3, pluck: { level: 0.19, decaySeconds: 1.0, perSecond: 9, maxPerSecond: 24 } },
+    // Night lights: a music box. Cities pluck as they cross the middle of the globe.
+    lights: { rootHz: 220, pad: { level: 0.05, harmonics: 3, octave: -1 }, pluck: { on: 'peak', level: 0.36, threshold: 0.25, decaySeconds: 1.8, octave: 0 } },
+    // Ocean: a held chord, with slow low bells where a line crosses from warm water to cold.
+    // threshold = how big the step must be, as a share of the whole range (0.04 is about 1.3 C).
+    ocean:  { rootHz: 73.42, pad: { level: 0.3, harmonics: 3, octave: 0 }, pluck: { on: 'front', level: 0.24, threshold: 0.04, decaySeconds: 3.5, octave: 1 } },
   },
 
   // ---- The Earth turns ---------------------------------------------------

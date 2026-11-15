@@ -6,6 +6,9 @@
 //   attract  a child's height, looking up at the machine
 //   menu     in front of the screen, the machine still around it
 //   world    through the glass and up to one world, until it fills the view
+// There are two skies. Far stars are all around the machine. The screen is dark
+// glass with its own stars behind it, which shift as the camera moves, so what
+// is inside the screen stays inside the screen.
 // Going from one world to the next, the camera swings along the ring.
 // The machine is solid: faces are filled black and drawn back to front, so
 // nothing shows through it. Lines only, white on black.
@@ -32,6 +35,10 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
   let mode = 'attract', active = 0, move = null, clock = 0, hot = -1;   // move: { from, to, glide, t, dur, done }
   let lift = [0, 0, 0];             // keeps the worlds in the middle of the screen when seen from below
   const N = planets.length;
+  let seed = 3912; const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+  // far stars: directions all around. inner stars: places behind the glass, as [across, up, depth] in metres.
+  const far = Array.from({ length: 300 }, () => { const z = rnd() * 2 - 1, a = rnd() * Math.PI * 2, r = Math.sqrt(1 - z * z); return { d: [r * Math.cos(a), z, r * Math.sin(a)], b: rnd() }; });
+  const inner = Array.from({ length: 320 }, () => ({ p: [(rnd() * 2 - 1) * 3.2, (rnd() * 2 - 1) * 3.2, 0.9 + rnd() * 5.5], b: rnd() }));
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, window.innerWidth < 900 ? 1.5 : 2);
@@ -175,7 +182,8 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
   }
 
   // Draw one frame. Returns where each world is on screen (CSS pixels) and how far along a move is.
-  function frame(dt) {
+  // content: 1 = draw everything, 0 = only the stars (a world is showing in front of this picture).
+  function frame(dt, content = 1) {
     clock += dt;
     if (move) {
       move.t += dt;
@@ -195,15 +203,35 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     g.clearRect(0, 0, W, H);                             // the stars are behind this canvas
-    const outside = V.dot(V.sub(cam.c, geo.centre), geo.normal) > 0;      // in front of the glass?
+    const gap = V.dot(V.sub(cam.c, geo.centre), geo.normal);            // how far in front of the glass the camera is
+    const outside = gap > 0;
+    const far1 = smooth((gap - 0.12) / 0.5);                            // 0 when pressed up to the glass: the machine's own lines fade there
 
-    if (outside) { for (const l of floor) { trace(cam, l, false); stroke(0.13, 1); } }
+    const dot = (v, b) => {
+      if (v[2] <= NEAR) return;
+      const q = px(v), r = (b > 0.96 ? 1.4 : b > 0.8 ? 1 : 0.7) * dpr;
+      g.fillStyle = `rgba(${look.line},${(0.2 + 0.6 * b * b).toFixed(2)})`; g.fillRect(q[0] - r / 2, q[1] - r / 2, r, r);
+    };
+    const back = V.mul(geo.normal, -1);
+    const innerAt = (q) => V.add(geo.centre, V.add(V.add(V.mul(geo.right, q[0]), V.mul(geo.up, q[1])), V.mul(back, q[2])));
+    if (outside) {
+      for (const st of far) dot([V.dot(st.d, cam.r), V.dot(st.d, cam.u), V.dot(st.d, cam.f)], st.b);   // so far away that only the camera's turning moves them
+      g.globalAlpha = content;
+      for (const l of floor) { trace(cam, l, false); stroke(0.13, 1); }
+      g.globalAlpha = 1;
+    }
 
     // the space behind the glass, seen through the screen when we are in front of it
     g.save();
-    if (outside) { if (trace(cam, scr, true)) g.clip(); else { g.beginPath(); g.rect(0, 0, 0, 0); g.clip(); } }
+    if (outside) {
+      if (trace(cam, scr, true)) { g.fillStyle = '#03060a'; g.fill(); g.clip(); } else { g.beginPath(); g.rect(0, 0, 0, 0); g.clip(); }   // dark glass: the far stars stop at the frame
+    }
+    for (const st of inner) dot(view(cam, innerAt(st.p)), st.b);
+    if (content <= 0.005) { g.restore(); return { spots: planets.map(() => null), moving: move ? { ...move, k: move.t / move.dur } : null, mode, active }; }
+    g.globalAlpha = content;
     const into = move && move.to.mode === 'world', outOf = move && move.from.mode === 'world', p = move ? move.t / move.dur : 0;
     trace(cam, geo.ringOf(V.add(geo.orbitC, lift)), false); stroke(outside ? 0.28 : 0.16, 1);
+    g.globalAlpha = 1;
     const spots = planets.map((_, i) => {
       const cv = view(cam, planetAt(i));
       if (cv[2] < NEAR * 2) return { i, z: -1 };
@@ -221,7 +249,7 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
     // names show in the menu and from the child's height, and go as we fly in
     const names = !move ? (mode === 'world' ? 0 : 1) : into ? (outOf ? 0 : 1 - smooth(p / 0.3)) : outOf ? smooth((p - 0.6) / 0.4) : 1;
     for (const s of spots.filter((q) => q.z > 0).sort((a, b) => b.z - a.z)) {
-      const al = shown(s.i); if (al <= 0.01) continue;
+      const al = shown(s.i) * content; if (al <= 0.01) continue;
       g.globalAlpha = al;
       g.fillStyle = '#000'; g.beginPath(); g.arc(s.x, s.y, s.r * 1.01, 0, Math.PI * 2); g.fill();   // a world hides what is behind it
       const h = s.r / 0.94;                               // the picture's globe is 0.47 of its width, so 0.94 of its half-width
@@ -229,9 +257,14 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
       g.globalAlpha = 1;
       if (names > 0.01) nameOn(s, planets[s.i].d.title, names * al, s.i === hot);
     }
+    if (outside) {                                       // the lines of a picture tube, lying on the glass
+      g.globalAlpha = content * far1;
+      for (let j = 1; j < 40; j++) { const t = j / 40; trace(cam, [V.mix(scr[0], scr[3], t), V.mix(scr[1], scr[2], t)], false); g.strokeStyle = `rgba(${look.line},0.045)`; g.lineWidth = dpr; g.stroke(); }
+    }
     g.restore();
 
-    if (outside) {
+    if (outside && far1 > 0.01) {
+      g.globalAlpha = content * far1;
       // the machine: faces that point toward the camera, farthest first, filled black then outlined
       const seen = faces.filter((f) => V.dot(f.n, V.sub(cam.c, f.c)) > 0)
         .map((f) => ({ f, d: Math.max(...f.pts.map((q) => view(cam, q)[2])) })).sort((a, b) => b.d - a.d);
@@ -255,6 +288,7 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
         g.restore();
         if (trace(cam, sign, true)) stroke(0.5, 1);
       }
+      g.globalAlpha = 1;
     }
     return {
       spots: spots.map((s) => (s.z > 0 ? { x: s.x / dpr, y: s.y / dpr, r: s.r / dpr } : null)),
@@ -274,6 +308,7 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
   return {
     resize, frame, go,
     get mode() { return mode; }, get active() { return active; }, get moving() { return !!move; },
+    get progress() { return move ? { to: move.to, from: move.from, k: move.t / move.dur } : null; },
     set(to) { mode = to.mode; active = to.i ?? active; move = null; },
     set hot(i) { hot = i; },
   };

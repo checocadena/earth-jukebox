@@ -36,7 +36,7 @@ export async function createFieldWorld(ds, app) {
     for (let r = Math.round(c - cfg.bandDegrees); r <= Math.round(c + cfg.bandDegrees); r++) if (r >= 0 && r < ROWS) rows.push(r);
     return {
       lat, row: Math.max(0, Math.min(ROWS - 1, c)), rows, ratio: 1 / Math.cos((lat * Math.PI) / 180),
-      wave: new Float32Array(COLS), sky: new Float32Array(COLS), L: new Float32Array(COLS), R: new Float32Array(COLS), level: 0, facing: 0, facingFirst: 0,
+      wave: new Float32Array(COLS), gap: new Uint8Array(COLS), sky: new Float32Array(COLS), L: new Float32Array(COLS), R: new Float32Array(COLS), level: 0, facing: 0, facingFirst: 0,
     };
   });
 
@@ -47,6 +47,7 @@ export async function createFieldWorld(ds, app) {
       let v = 0, k = 0;
       for (const r of ln.rows) { const x = value(y0, y1, t, r * COLS + col); if (x >= 0) { v += x; k++; } }
       out[col] = k ? v / k : -1;
+      if (out === ln.wave) ln.gap[col] = k ? 0 : 1;        // no data here (land, for the ocean)
       if (k) { sum += out[col]; n++; }
     }
     const mean = n ? sum / n : 0;
@@ -139,12 +140,24 @@ export async function createFieldWorld(ds, app) {
       const col = (((Math.round(from) + dir * k + 180) % COLS) + COLS) % COLS;
       for (const ln of lines) {
         if (Math.cos(((ln.lat - viewLat) * Math.PI) / 180) < 0.25) continue;      // that line is not in view
-        const v = ln.wave[col], a = ln.wave[(col + COLS - 1) % COLS], b = ln.wave[(col + 1) % COLS];
-        const bright = Math.sqrt(v / top);
-        if (bright < pk.threshold || v < a || v <= b) continue;                   // only the brightest spot of each place
-        const amp = pk.level * Math.min(1, bright) * 0.5, pan = (((col * 37 + ln.row * 11) % 100) / 100 - 0.5) * 0.9;   // each place keeps its own spot between the ears
+        const L1 = (col + COLS - 1) % COLS, R1 = (col + 1) % COLS;
+        const v = ln.wave[col], a = ln.wave[L1], b = ln.wave[R1];
+        let strength;
+        if (pk.on === 'front') {
+          // a sharp change along the line: warm water next to cold. Only the sharpest point of each change, and never across land.
+          if (ln.gap[col] || ln.gap[L1] || ln.gap[R1]) continue;
+          const step = Math.abs(b - a), before = Math.abs(v - ln.wave[(col + COLS - 2) % COLS]), after = Math.abs(ln.wave[(col + 2) % COLS] - v);
+          if (step < pk.threshold || step < before || step <= after) continue;
+          strength = Math.min(1, step / (pk.threshold * 3));
+        } else {
+          // a bright place: only the brightest spot of each
+          strength = Math.sqrt(v / top);
+          if (strength < pk.threshold || v < a || v <= b) continue;
+          strength = Math.min(1, strength);
+        }
+        const amp = pk.level * strength * 0.5, pan = (((col * 37 + ln.row * 11) % 100) / 100 - 0.5) * 0.9;   // each place keeps its own spot between the ears
         const ang = ((pan + 1) * Math.PI) / 4;
-        emit(freq * ln.ratio, amp * Math.cos(ang), amp * Math.sin(ang), pk.decaySeconds);
+        emit(freq * Math.pow(2, pk.octave || 0) * ln.ratio, amp * Math.cos(ang), amp * Math.sin(ang), pk.decaySeconds);
       }
     }
   }
