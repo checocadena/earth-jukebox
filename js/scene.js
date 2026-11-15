@@ -6,9 +6,9 @@
 //   attract  a child's height, looking up at the machine
 //   menu     in front of the screen, the machine still around it
 //   world    through the glass and up to one world, until it fills the view
-// There are two skies. Far stars are all around the machine. The screen is dark
-// glass with its own stars behind it, which shift as the camera moves, so what
-// is inside the screen stays inside the screen.
+// There are three lots of stars. Far ones are all around the machine. The screen
+// is dark glass with stars painted on it, which stay put with its lines. Deep
+// behind the glass are more, which only show once the camera is up close or inside.
 // Going from one world to the next, the camera swings along the ring.
 // The machine is solid: faces are filled black and drawn back to front, so
 // nothing shows through it. Lines only, white on black.
@@ -37,8 +37,10 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
   const N = planets.length;
   let seed = 3912; const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
   // far stars: directions all around. inner stars: places behind the glass, as [across, up, depth] in metres.
-  const far = Array.from({ length: 300 }, () => { const z = rnd() * 2 - 1, a = rnd() * Math.PI * 2, r = Math.sqrt(1 - z * z); return { d: [r * Math.cos(a), z, r * Math.sin(a)], b: rnd() }; });
+  const far = Array.from({ length: 1700 }, () => { const z = rnd() * 2 - 1, a = rnd() * Math.PI * 2, r = Math.sqrt(1 - z * z); return { d: [r * Math.cos(a), z, r * Math.sin(a)], b: rnd() }; });
   const inner = Array.from({ length: 320 }, () => ({ p: [(rnd() * 2 - 1) * 3.2, (rnd() * 2 - 1) * 3.2, 0.9 + rnd() * 5.5], b: rnd() }));
+  // screen stars: painted on the glass, as [across, up] in shares of the screen, so they stay put with its lines
+  const glass = Array.from({ length: 150 }, () => ({ p: [rnd() - 0.5, rnd() - 0.5], b: rnd() }));
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, window.innerWidth < 900 ? 1.5 : 2);
@@ -205,12 +207,12 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
     g.clearRect(0, 0, W, H);                             // the stars are behind this canvas
     const gap = V.dot(V.sub(cam.c, geo.centre), geo.normal);            // how far in front of the glass the camera is
     const outside = gap > 0;
-    const far1 = smooth((gap - 0.12) / 0.5);                            // 0 when pressed up to the glass: the machine's own lines fade there
+    const far1 = smooth((gap - 0.38) / 0.45);                            // 0 when pressed up to the glass: the machine's own lines fade there
 
     const dot = (v, b) => {
       if (v[2] <= NEAR) return;
       const q = px(v), r = (b > 0.96 ? 1.4 : b > 0.8 ? 1 : 0.7) * dpr;
-      g.fillStyle = `rgba(${look.line},${(0.2 + 0.6 * b * b).toFixed(2)})`; g.fillRect(q[0] - r / 2, q[1] - r / 2, r, r);
+      g.fillStyle = `rgba(${look.line},${(0.3 + 0.6 * b * b).toFixed(2)})`; g.fillRect(q[0] - r / 2, q[1] - r / 2, r, r);
     };
     const back = V.mul(geo.normal, -1);
     const innerAt = (q) => V.add(geo.centre, V.add(V.add(V.mul(geo.right, q[0]), V.mul(geo.up, q[1])), V.mul(back, q[2])));
@@ -226,7 +228,10 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
     if (outside) {
       if (trace(cam, scr, true)) { g.fillStyle = '#03060a'; g.fill(); g.clip(); } else { g.beginPath(); g.rect(0, 0, 0, 0); g.clip(); }   // dark glass: the far stars stop at the frame
     }
-    for (const st of inner) dot(view(cam, innerAt(st.p)), st.b);
+    // from a distance: the stars on the glass. Up close and inside: the ones deep behind it.
+    if (outside && far1 > 0.01) { g.globalAlpha = far1; for (const st of glass) dot(view(cam, V.add(geo.centre, V.add(V.mul(geo.right, st.p[0] * geo.ws), V.mul(geo.up, st.p[1] * geo.hs)))), st.b); }
+    if (far1 < 0.99) { g.globalAlpha = 1 - far1; for (const st of inner) dot(view(cam, innerAt(st.p)), st.b); }
+    g.globalAlpha = 1;
     if (content <= 0.005) { g.restore(); return { spots: planets.map(() => null), moving: move ? { ...move, k: move.t / move.dur } : null, mode, active }; }
     g.globalAlpha = content;
     const into = move && move.to.mode === 'world', outOf = move && move.from.mode === 'world', p = move ? move.t / move.dur : 0;
