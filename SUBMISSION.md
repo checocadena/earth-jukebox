@@ -7,7 +7,7 @@ Draft only. Checo submits. Global deadline: Sun Nov 15, 11:59 pm ET.
 The Space Apps site would not load from the build machine, so the field names below come from the 2025 Project Submission Guide. Check them against the 2026 form. I also could not read the 2026 rules page, so read the rules on team size, AI use and NASA branding yourself before submitting.
 
 - [ ] Make the repo public: GitHub, repo Settings, General, bottom of the page, Change visibility, Public.
-- [ ] Turn on GitHub Pages: repo Settings, Pages, Deploy from a branch, branch main, folder / (root). The link will be https://checocadena.github.io/earth-jukebox/
+- [x] Hosted on Netlify at https://earthjukebox.com/ (domain on Porkbun, DNS on Cloudflare).
 - [ ] Open that link on your phone and laptop. Tap to start, fly into each world, check the sound.
 - [ ] Record the demo (plan at the bottom). The 2025 guide caps it at 30 seconds and wants a public link, so upload it to YouTube or Vimeo.
 - [ ] Paste the text below into the form. It is plain text on purpose.
@@ -25,7 +25,7 @@ Earth Jukebox plays NASA's pictures of the Earth as sound. NASA's Earth Informat
 ## Links
 
 Demo video: (add after recording)
-Final project: https://checocadena.github.io/earth-jukebox/
+Final project: https://earthjukebox.com/
 Code: https://github.com/checocadena/earth-jukebox
 
 ## Project details

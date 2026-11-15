@@ -4,7 +4,7 @@ NASA Space Apps Challenge 2026 entry (NYC local event, NYU Tandon, Nov 14-15), c
 
 NASA's Earth Information Center animations, played as sound. An arcade machine in the browser with three Earths on its screen: lightning seen from the Space Station (SVS 5011), city lights at night 2012 to 2023 (SVS 5313) and sea surface temperature (SVS 3912). The data is read from the frames of NASA's animations and played as notes. Every line of latitude has a note, and cities, flashes and ocean fronts pluck it as the Earth turns. Built for blind and low-vision people first, and for anyone else.
 
-Live: https://checocadena.github.io/earth-jukebox/
+Live: https://earthjukebox.com/
 
 Status: working. Building started Sat Nov 14, after the 10:00 am ET start time in the rules.
 
