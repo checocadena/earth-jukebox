@@ -29,7 +29,7 @@ export default {
   level: { click: 0.6, hiss: 0.07, tone: 0.16, hissInTone: true },
   // PLACEHOLDER click colour. A flash is a single-sample click through a
   // low-pass filter. 20000 = raw click, thin and bright. 1500 = a soft thud.
-  click: { lowpassHz: 900 },
+  click: { lowpassHz: 280 },
   highpassHz: 20,       // removes the inaudible slow offset
   master: 0.9,
   // Above this many events per sample the engine reads the per-frame rate
@@ -80,7 +80,7 @@ export default {
     // line of latitude nearest to it. Only some flashes pluck (there are thousands a second):
     // about `perSecond` at the starting speed, more in stormy months, fewer in quiet ones.
     // bed = level of the click-per-flash sound underneath (0 = none, 1 = as it was).
-    lightning: { rootHz: 293.66, bed: 0.22, pluck: { level: 0.19, decaySeconds: 1.0, perSecond: 9, maxPerSecond: 24 } },
+    lightning: { rootHz: 293.66, bed: 0.1, pluck: { level: 0.19, decaySeconds: 1.0, perSecond: 9, maxPerSecond: 24 } },
     // Night lights: a music box. Cities pluck as they cross the middle of the globe.
     lights: { rootHz: 220, pad: { level: 0.05, harmonics: 3, octave: -1 }, pluck: { on: 'peak', level: 0.36, threshold: 0.25, decaySeconds: 1.8, octave: 0 } },
     // Ocean: a held chord, with slow low bells where a line crosses from warm water to cold.

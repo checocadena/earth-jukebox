@@ -185,7 +185,8 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
 
   // Draw one frame. Returns where each world is on screen (CSS pixels) and how far along a move is.
   // content: 1 = draw everything, 0 = only the stars (a world is showing in front of this picture).
-  function frame(dt, content = 1) {
+  // live: the world that the caller draws itself, in the place this returns for it.
+  function frame(dt, content = 1, live = -1) {
     clock += dt;
     if (move) {
       move.t += dt;
@@ -243,7 +244,7 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
     if (content <= 0.005) { g.restore(); return { spots: planets.map(() => null), moving: move ? { ...move, k: move.t / move.dur } : null, mode, active }; }
     g.globalAlpha = content;
     const into = move && move.to.mode === 'world', outOf = move && move.from.mode === 'world', p = move ? move.t / move.dur : 0;
-    trace(cam, geo.ringOf(V.add(geo.orbitC, lift)), false); stroke(outside ? 0.28 : 0.16, 1);
+    trace(cam, geo.ringOf(V.add(geo.orbitC, lift)), false); stroke((outside ? 0.28 : 0.16) * (into ? 1 - smooth((p - 0.5) / 0.4) : 1), 1);
     g.globalAlpha = 1;
     const spots = planets.map((_, i) => {
       const cv = view(cam, planetAt(i));
@@ -253,14 +254,15 @@ export function makeScene({ canvas, look, title, planets, landing, still = false
     });
     // On the way into a world the others fade, so they do not sweep across the view; on the way out they return.
     const shown = (i) => {
+      if (i === live) return 0;
       if (!move) return mode === 'world' ? (i === active ? 1 : 0) : 1;
-      if (move.glide) return i === move.from.i || i === move.to.i ? 1 : Math.sin(Math.PI * p);
+      if (move.glide) return i === move.to.i ? 1 : i === move.from.i ? 1 - smooth((p - 0.5) / 0.4) : Math.sin(Math.PI * p) * (1 - smooth((p - 0.5) / 0.4));
       if (into && i === move.to.i) return 1;
       if (outOf && i === move.from.i) return 1;
-      return into ? 1 - smooth(p / 0.35) : outOf ? smooth((p - 0.35) / 0.5) : 1;
+      return into ? 1 - smooth(p / 0.35) : outOf ? smooth(p / 0.3) : 1;
     };
     // names show in the menu and from the child's height, and go as we fly in
-    const names = !move ? (mode === 'world' ? 0 : 1) : into ? (outOf ? 0 : 1 - smooth(p / 0.3)) : outOf ? smooth((p - 0.6) / 0.4) : 1;
+    const names = !move ? (mode === 'world' ? 0 : 1) : into ? (outOf ? 0 : 1 - smooth(p / 0.3)) : outOf ? smooth((p - 0.45) / 0.4) : 1;
     for (const s of spots.filter((q) => q.z > 0).sort((a, b) => b.z - a.z)) {
       const al = shown(s.i) * content; if (al <= 0.01) continue;
       g.globalAlpha = al;

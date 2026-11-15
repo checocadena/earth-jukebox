@@ -60,10 +60,9 @@ header nav { display: flex; gap: 8px; }
   position: fixed; inset: auto 0 0 0; z-index: 2; display: grid; gap: 10px; justify-items: center;
   padding: 0 16px max(18px, env(safe-area-inset-bottom));
 }
-.globe { position: fixed; inset: 104px 0 150px 0; touch-action: none; cursor: grab; }
+.globe { position: fixed; inset: 104px 0 96px 0; touch-action: none; cursor: grab; }
 .globe:active { cursor: grabbing; }
 .globe:focus-visible { outline: none; }   /* the scope draws a heavier rim instead */
-.play { min-width: 112px; position: relative; }
 .rows { width: min(760px, 100%); display: grid; gap: 2px; position: relative; }
 .row { display: grid; grid-template-columns: 124px 1fr; align-items: center; gap: 12px; min-height: 40px; }
 .value { font: 800 22px/1 var(--display); letter-spacing: 0.02em; text-transform: uppercase; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
@@ -83,7 +82,12 @@ input[type="range"]::-moz-range-thumb { width: 3px; height: 22px; background: va
 
 /* NASA's own frame, beside ours */
 .frame { position: fixed; z-index: 3; left: 16px; bottom: 156px; width: min(30vw, 440px); margin: 0; border: 1px solid var(--line); background: #000; }
+.frame button { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
 .frame video { display: block; width: 100%; height: auto; }
+/* enlarged: the picture fills the window, over everything */
+.frame.big { inset: 0 !important; width: auto !important; height: auto !important; transform: none !important; z-index: 9; border: 0; display: grid; place-items: center; background: rgb(0 0 0 / 0.94); }
+.frame.big button { cursor: zoom-out; width: min(96vw, 190vh); }
+.frame.big figcaption { display: block !important; left: 16px; bottom: auto; top: 14px; }
 .frame figcaption { position: absolute; left: 0; bottom: 100%; padding: 0 0 4px; font: 600 11px var(--body); letter-spacing: 0.1em; text-transform: uppercase; }
 .frame a { color: var(--dim); text-decoration: none; }
 @media (max-width: 900px) { .frame { left: 50%; transform: translateX(-50%); top: 112px; bottom: auto; width: var(--fw, 62vw); height: calc(var(--fw, 62vw) / 2); display: grid; align-items: center; } .frame figcaption { display: none; } }

@@ -18,6 +18,7 @@ export function makeScope(canvas, cfg, look, opts = {}) {
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const P = look.line, G = look.lineGlow, DP = look.data, DG = look.dataGlow;
   let w = 0, h = 0, dpr = 1, cx = 0, cy = 0, R = 0;
+  let placed = false;
   let coast = [], lon0 = 0, lat0 = 0, baseDirty = true, focused = false, heatDirty = true, heatAge = 0, glowLon = 0, glowLat = 0;
 
   function resize() {
@@ -33,7 +34,7 @@ export function makeScope(canvas, cfg, look, opts = {}) {
     const t = (typeof top === 'function' ? top() : top) * dpr, b = bottom * dpr;
     R = Math.max(20, Math.min(w * fill, (h - t - b) / 2 / (ticks ? 1.26 : 1.04)));
     cx = w / 2; cy = t + (h - t - b) / 2;
-    baseDirty = true;
+    baseDirty = true; placed = false;
   }
 
   // Where each 1-degree cell is on the globe at its exact angle now (not rounded to a
@@ -227,6 +228,12 @@ export function makeScope(canvas, cfg, look, opts = {}) {
     setCoast(lines) { coast = lines; baseDirty = true; },
     setFocus(on) { focused = on; baseDirty = true; },
     touch() { heatDirty = true; },
+    // Put the globe somewhere else on the canvas (CSS pixels), for the flight in; null puts it back.
+    place(q) {
+      if (!q) { if (placed) resize(); return; }
+      placed = true; cx = q.x * dpr; cy = q.y * dpr; R = Math.max(2, q.r * dpr); baseDirty = true; pg.clearRect(0, 0, w, h);
+    },
+    setSize(n) { if (opts.size !== n) { opts.size = n; resize(); } },
     setTicks(on) { if (ticks !== on) { ticks = on; baseDirty = true; } },
     clear() { pg.clearRect(0, 0, w, h); hg.clearRect(0, 0, w, h); heatDirty = true; },
     // A slow turn keeps the afterglow; a jump clears it (it would be in the wrong place).

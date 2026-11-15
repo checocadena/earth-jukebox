@@ -12,7 +12,7 @@ const ui = {
   hub: $('hub'), player: $('player'), home: $('home'), tabs: $('tabs'), nasa: $('nasa'), header: document.querySelector('header'), start: $('start'),
   sceneCanvas: $('scene'), scopeCanvas: $('scope'),
   play: $('play'), ring: $('ring'), wav: $('wav'), info: $('info'), about: $('about'), close: $('close'), globe: $('globe'),
-  time: $('time'), speed: $('speed'), date: $('date'), speedv: $('speedv'),
+  time: $('time'), date: $('date'),
   live: $('live'), status: $('status'), download: $('download'),
 };
 
@@ -39,7 +39,7 @@ document.documentElement.style.setProperty('--glow', `rgb(${look.dataGlow})`);
 // What every world shares: the scope, the side of the Earth facing the listener, the voice.
 // Room kept for the header and the controls, in CSS pixels. On narrow screens NASA's frame sits
 // above the globe, so the globe starts lower.
-const BOTTOM = 150, FILL = 0.39;
+const BOTTOM = 96, FILL = 0.39;
 const frameBox = () => { const w = Math.min(innerWidth * 0.62, 300); return { w, h: w / 2 }; };
 const TOP = () => (innerWidth <= 900 ? 112 + frameBox().h + 8 : 104);
 const app = {
@@ -109,8 +109,9 @@ function landing(i) {
 const planetOf = (d) => planets.find((p) => p.d === d);
 
 // Draw each world's small picture, turned to where it is now.
-function drawPictures() {
+function drawPictures(skip) {
   for (const p of planets) {
+    if (planets[skip] === p) continue;                    // that one is being drawn by the big globe
     if (p.base.lat !== p.lat) { projectCells(0, p.lat, p.base); p.base.lat = p.lat; }
     p.scope.setView(p.lon, p.lat);
     shiftCells(p.base, p.lon, p.proj);
@@ -126,13 +127,14 @@ async function route(first) {
   if (d === ds && !first) return;
   const from = ds;
   if (world && playing) fade(world, 0);                   // the world we leave fades out behind us
+  if (from && !first) { const q = planetOf(from), t = landing(planets.indexOf(q)); q.scope.setSize(Math.min(1500, Math.ceil((t.r * 2 * Math.min(devicePixelRatio || 1, 2)) / 0.94))); }   // and is drawn sharp at full size while it goes
   playing = false; ui.play.textContent = 'Play';
   ds = d; world = null;
   showNasa(false);
-  ui.download.hidden = true; ui.status.textContent = '';
+  ui.status.textContent = '';
   [...ui.tabs.children].forEach((t, i) => t.setAttribute('aria-current', String(datasets[i] === d)));
   document.title = d ? `${d.title} · ${project.title}` : project.title;
-  ui.wav.hidden = !d; ui.tabs.hidden = !d;
+  ui.wav.hidden = !d; ui.tabs.hidden = !d; ui.play.hidden = !d;
   document.body.classList.toggle('in-world', !!d);
   document.body.classList.toggle('in-menu', !d);
 
@@ -144,7 +146,7 @@ async function route(first) {
   const p = planetOf(d), i = planets.indexOf(p);
   $('intro').textContent = `${d.about} Space plays and pauses. Left and right arrows turn the globe, shift with up and down tilts it. ` +
     `Up and down arrows: ${d.speedKeys.toLowerCase()}. Comma and full stop: ${d.timeKeys.toLowerCase()}. Square brackets fly to the next or previous world. ` +
-    "D says what is playing. W makes a WAV file. S stops or starts the turning. Escape goes back to the menu. NASA's own animation is shown beside the globe.";
+    "D says what is playing. W exports the audio as a WAV file. S stops or starts the turning. Escape goes back to the menu. NASA's own animation is shown beside the globe.";
   const arrive = () => { ui.globe.focus({ preventScroll: true }); say(`${d.title}. ${d.about}`); if (!playing) setPlaying(true, true); };
   if (first) scene.set({ mode: 'world', i });
   else scene.go({ mode: 'world', i }, from ? 1.5 : 1.3, arrive);
@@ -279,11 +281,8 @@ async function setPlaying(on, quiet) {
 function readouts(force) {
   if (!world) return;
   ui.date.textContent = world.timeText();
-  ui.speedv.textContent = world.speedText(false);
   if (force || document.activeElement !== ui.time) ui.time.value = Math.round(world.timeSlider * 1000);
-  if (force || document.activeElement !== ui.speed) ui.speed.value = Math.round(world.speedSlider * 1000);
   ui.time.setAttribute('aria-valuetext', world.timeAria());
-  ui.speed.setAttribute('aria-valuetext', world.speedText(true));
 }
 
 const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
@@ -308,18 +307,20 @@ function tick(now) {
 
   // How much of the picture is the 3D scene, and how much the big globe. They show the same
   // world in the same place, so one fades into the other at the end of a flight in.
-  let sceneAlpha = scene.mode === 'world' && !moving ? 0 : 1;
-  if (sceneAlpha) drawPictures();
-  if (moving && scene.moving) {                           // fade into the big globe at the end of a flight in
-    const m = scene.progress;
-    if (m && m.to.mode === 'world') sceneAlpha = 1 - smooth((m.k - 0.78) / 0.22);
-  }
-  const s = scene.frame(dt, sceneAlpha);                  // the stars are always drawn; the rest fades with sceneAlpha
-  if (sceneAlpha) placeButtons(s);
-  const worldAlpha = world ? 1 - sceneAlpha : 0;
-  ui.scopeCanvas.style.opacity = String(worldAlpha);
-  ui.player.style.opacity = String(worldAlpha); ui.tabs.style.opacity = String(ds ? Math.max(worldAlpha, 0.35) : 0);
-  frame.style.opacity = String(worldAlpha);
+  // The world we are in, or flying to, is drawn by the big globe itself the whole way, so there is
+  // no handover to notice: the scene tells us where that world is and the globe is put there.
+  const live = world && active ? planets.indexOf(active) : -1;
+  const content = scene.mode === 'world' && !moving ? 0 : 1;      // 0: only the stars are needed from the scene
+  if (content) drawPictures(live);
+  const before = scene.progress;
+  const s = scene.frame(dt, content, live);
+  if (content) placeButtons(s);
+  if (live >= 0) app.scope.place(s.moving ? s.spots[live] || { x: -9999, y: -9999, r: 2 } : null);
+  if (!s.moving) for (const p of planets) p.scope.setSize(PIC);  // pictures go back to their small size once we have arrived
+  const k = s.moving ? s.moving.k : before ? 1 : 0;
+  const uiAlpha = !world ? 0 : s.moving ? (s.moving.to.mode === 'world' ? smooth((k - 0.72) / 0.28) : 0) : 1;   // the controls come in at the end of a flight
+  ui.scopeCanvas.style.opacity = world ? '1' : '0';
+  ui.player.style.opacity = String(uiAlpha); ui.tabs.style.opacity = String(ds ? Math.max(uiAlpha, 0.35) : 0);
   const mode = moving ? 'moving' : scene.mode;
   if (mode !== shownMode) {                               // only the place we are in can be touched
     shownMode = mode;
@@ -352,11 +353,11 @@ function placeButtons(s) {
 // ---------- WAV ----------
 async function makeWav() {
   if (!world || ui.wav.disabled) return;
-  ui.wav.disabled = true; ui.download.hidden = true;
+  ui.wav.disabled = true;
   try {
-    const r = await world.renderWav(async (p) => { ui.status.textContent = `Making WAV: ${Math.round(p * 100)}%`; await new Promise((res) => setTimeout(res)); });
+    const r = await world.renderWav(async (p) => { ui.status.textContent = `Exporting audio: ${Math.round(p * 100)}%`; await new Promise((res) => setTimeout(res)); });
     // run the dry render through the same reverb and echo as the live sound
-    ui.status.textContent = 'Making WAV: adding the room';
+    ui.status.textContent = 'Exporting audio: adding the room';
     const tail = settings.effects.reverb > 0 || settings.effects.delay > 0 ? 6 : 0;
     const off = new OfflineAudioContext(2, r.L.length + tail * r.sr, r.sr), dry = off.createBuffer(2, r.L.length, r.sr);
     dry.copyToChannel(r.L, 0); dry.copyToChannel(r.R, 1);
@@ -367,12 +368,12 @@ async function makeWav() {
     if (wavUrl) URL.revokeObjectURL(wavUrl);
     wavUrl = URL.createObjectURL(blob);
     const name = `earth-jukebox-${ds.id}-${r.tag}.wav`;
-    Object.assign(ui.download, { href: wavUrl, download: name, hidden: false });
-    ui.download.textContent = `Download WAV, ${Math.round(r.secs)} s`;
-    ui.download.setAttribute('aria-label', `Download ${name}, ${Math.round(r.secs)} seconds, ${(blob.size / 1048576).toFixed(1)} megabytes`);
-    ui.status.textContent = '';
-    ui.download.focus();
-  } catch (e) { ui.status.textContent = 'Could not make the WAV file: ' + e.message; }
+    Object.assign(ui.download, { href: wavUrl, download: name });
+    ui.download.click();                                   // the browser asks where to save it
+    ui.status.textContent = `Saved ${name} (${Math.round(r.secs)} seconds).`;
+    say(`Audio exported: ${name}, ${Math.round(r.secs)} seconds.`);
+    setTimeout(() => { if (ui.status.textContent.startsWith('Saved')) ui.status.textContent = ''; }, 6000);
+  } catch (e) { ui.status.textContent = 'Could not export the audio: ' + e.message; }
   ui.wav.disabled = false;
 }
 
@@ -384,14 +385,14 @@ function showInfo() {
   const p = (t) => { const e = document.createElement('p'); e.textContent = t; body.append(e); };
   if (!d) {
     p(project.about);
-    p('Choose a world to hear it. Everything works from the keyboard, and each world says what it is playing for screen readers.');
+    p('Pick a world. It all works from the keyboard, and a screen reader will tell you what\'s playing.');
     keys.hidden = true;
     $('credit').textContent = datasets.map((x) => `${x.title}: ${x.sourceTitle}, ${x.sourceUrl}.`).join(' ') + ' Coastlines: Natural Earth.';
   } else {
     p(d.about); d.sound.forEach(p);
     keys.hidden = false;
     const rows = [['Space', 'Play or pause'], ['← →', 'Turn the globe'], ['Shift ↑ ↓', 'Tilt the globe'], ['↑ ↓', d.speedKeys], [', .', d.timeKeys]];
-    rows.push(['[ ]', 'Previous or next world'], ['S', 'Stop or start the turning'], ['D', 'Say what is playing'], ['W', 'Make a WAV file'], ['Esc', 'Back to the menu']);
+    rows.push(['[ ]', 'Previous or next world'], ['S', 'Stop or start the turning'], ['D', 'Say what is playing'], ['W', 'Export the audio as a WAV file'], ['Esc', 'Back to the menu']);
     for (const [k, v] of rows) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; keys.append(dt, dd); }
     $('credit').textContent = `${d.credit} Source: ${d.sourceTitle}, ${d.sourceUrl}. ${d.note}`;
   }
@@ -411,11 +412,18 @@ const frame = $('frame'), vid = $('nasavid');
 let nasaOn = false, lastSeek = 0;
 function showNasa(on) {
   nasaOn = !!on && !!ds?.video;
-  frame.hidden = !nasaOn;
+  frame.hidden = !nasaOn; frame.classList.remove('big');
   if (!nasaOn) return;
   if (vid.dataset.src !== ds.video.src) { vid.dataset.src = ds.video.src; vid.src = ds.video.src; }
   const a = $('framesrc'); a.href = ds.sourceUrl; a.textContent = ds.video.label;
 }
+// Click NASA's frame to see it large; click again or press Escape to put it back.
+function bigNasa(on) {
+  frame.classList.toggle('big', on);
+  $('framebtn').setAttribute('aria-expanded', String(on));
+  say(on ? `NASA's animation, enlarged: ${ds.sourceTitle}. Press Escape to close.` : "NASA's animation, small again.");
+}
+$('framebtn').addEventListener('click', () => bigNasa(!frame.classList.contains('big')));
 function syncNasa(now) {
   if (!nasaOn || !world || now - lastSeek < 180 || vid.readyState < 1 || vid.seeking) return;
   const t = Math.min(world.videoTime(), (vid.duration || 1e9) - 0.05);
@@ -430,8 +438,6 @@ ui.close.addEventListener('click', () => ui.about.close());
 ui.about.addEventListener('click', (e) => { if (e.target === ui.about) ui.about.close(); });
 ui.time.addEventListener('input', () => { if (world) { world.timeSlider = ui.time.value / 1000; readouts(false); } });
 ui.time.addEventListener('change', () => world && say(world.describe()));
-ui.speed.addEventListener('input', () => { if (world) { world.speedSlider = ui.speed.value / 1000; readouts(false); } });
-ui.speed.addEventListener('change', () => world && say(world.speedAnnounce()));
 
 ui.globe.addEventListener('focus', () => app.scope.setFocus(ui.globe.matches(':focus-visible')));
 ui.globe.addEventListener('blur', () => app.scope.setFocus(false));
@@ -463,6 +469,7 @@ document.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey || ui.about.open) return;
   const tag = e.target.tagName, k = e.key;
   if (k === 'i' || k === '?') { e.preventDefault(); showInfo(); return; }
+  if (k === 'Escape' && frame.classList.contains('big')) { e.preventDefault(); bigNasa(false); return; }
   if (k === 'Escape' && !ds && scene.mode === 'menu' && !scene.moving) { e.preventDefault(); scene.go({ mode: 'attract' }, 1.6, attract); return; }   // back to the start
   if (!world || scene.moving) return;
   if (k === 'Escape') { e.preventDefault(); goHome(); return; }

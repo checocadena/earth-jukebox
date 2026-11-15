@@ -5,7 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
 <title>Earth Jukebox</title>
-<meta name="description" content="Hear NASA's pictures of a changing Earth. Six years of lightning, one click per flash. Twelve years of city lights, read as a waveform.">
+<meta name="description" content="Hear NASA's pictures of the Earth. Lightning seen from the Space Station, city lights at night and ocean temperature, played as music you can turn by hand. Made for blind and low-vision listeners, and for everyone else.">
+<link rel="canonical" href="https://checocadena.github.io/earth-jukebox/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Earth Jukebox">
+<meta property="og:description" content="Hear NASA's pictures of the Earth. Lightning seen from the Space Station, city lights at night and ocean temperature, played as music you can turn by hand. Made for blind and low-vision listeners, and for everyone else.">
+<meta property="og:url" content="https://checocadena.github.io/earth-jukebox/">
+<meta property="og:image" content="https://checocadena.github.io/earth-jukebox/media/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A white outline drawing of an arcade machine on black. Three Earths orbit each other on its screen.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="author" content="Checo Cadena">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebApplication","name":"Earth Jukebox","url":"https://checocadena.github.io/earth-jukebox/","applicationCategory":"MultimediaApplication","operatingSystem":"Any (web browser)","description":"Hear NASA's pictures of the Earth. Lightning seen from the Space Station, city lights at night and ocean temperature, played as music you can turn by hand. Made for blind and low-vision listeners, and for everyone else.","author":{"@type":"Person","name":"Checo Cadena","url":"https://checocadena.com"},"isAccessibleForFree":true,"accessibilityFeature":["fullKeyboardControl","audioDescription","highContrastDisplay"],"image":"https://checocadena.github.io/earth-jukebox/media/og.jpg","codeRepository":"https://github.com/checocadena/earth-jukebox"}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800;900&family=Schibsted+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
@@ -22,7 +36,8 @@
   <div class="bar">
     <h1 id="heading"><button id="home" type="button" class="label" aria-label="Earth Jukebox. Menu.">Earth Jukebox</button></h1>
     <nav aria-label="Tools">
-      <button id="wav" type="button" class="btn" hidden>WAV</button>
+      <button id="play" type="button" class="btn" hidden>Play</button>
+      <button id="wav" type="button" class="btn" hidden>Export audio</button>
       <button id="info" type="button" class="btn" aria-haspopup="dialog">Info</button>
     </nav>
   </div>
@@ -34,16 +49,13 @@
 <main id="player" class="player" hidden>
   <p id="intro" class="sr-only"></p>
   <div id="globe" class="globe" role="application" tabindex="0" aria-describedby="intro" aria-label="Globe. Arrow keys turn it."></div>
-  <button id="play" type="button" class="btn play">Play</button>
   <div class="rows">
     <label class="row"><span id="date" class="value">&nbsp;</span>
       <input id="time" type="range" min="0" max="1000" step="1" value="0" aria-label="Date"></label>
-    <label class="row"><span id="speedv" class="value">&nbsp;</span>
-      <input id="speed" type="range" min="0" max="1000" step="1" value="0" aria-label="Speed"></label>
   </div>
-  <a id="download" class="btn download" hidden></a>
+  <a id="download" class="sr-only" tabindex="-1" aria-hidden="true"></a>
   <figure id="frame" class="frame" hidden>
-    <video id="nasavid" muted playsinline preload="auto" aria-label="NASA's original animation, at the same moment"></video>
+    <button id="framebtn" type="button" aria-expanded="false" aria-label="NASA's original animation, at the same moment. Enlarge."><video id="nasavid" muted playsinline preload="auto"></video></button>
     <figcaption><a id="framesrc" href="#" target="_blank" rel="noopener"></a></figcaption>
   </figure>
 </main>

@@ -6,9 +6,9 @@
 export const project = {
   title: 'Earth Jukebox',
   about:
-    'NASA\'s Earth Information Center shows how the planet is changing, in pictures. Earth Jukebox plays those pictures as sound, ' +
-    'so they can be heard as well as seen. Each world here is read out of the frames of one NASA animation. ' +
-    'Nothing is turned into notes: the data itself is the waveform.',
+    'I\'m Checo, a sound artist in New York. NASA\'s Earth Information Center shows how the planet is changing, mostly in pictures. ' +
+    'I wanted to hear them, and I wanted people who can\'t see them to have a way in. ' +
+    'Each world here is read straight from the frames of one NASA animation and played as sound.',
 };
 
 export default [
@@ -27,12 +27,12 @@ export default [
       'Kel Elkins (USRA), Alex Kekesi (GST). Data: Lightning Imaging Sensor on the International Space Station, ' +
       'quality controlled science data, NASA GHRC. Coastlines: Natural Earth.',
     about:
-      'Every lightning flash the Lightning Imaging Sensor on the International Space Station saw from March 2017 to 2023. ' +
-      'The station only passes over the tropics and middle latitudes, so the far north and south are silent.',
+      'Lightning seen from the International Space Station, March 2017 to 2023. ' +
+      'The station only flies over the tropics and the middle latitudes, so the far north and south are empty.',
     sound: [
-      'Rain on a music box. A flash plucks the note of the line of latitude nearest to it. There are thousands of flashes a second, so only a fixed share of them pluck: stormy months play more notes and quiet months fewer. Underneath, very quietly, every single flash is a click.',
-      'The notes come from the shape of the planet, as in the other worlds: lines nearer the poles are shorter circles, so they sound higher. Left on the globe is your left ear. You hear the side of the Earth that faces you, and the Earth turns while it plays.',
-      'The slider is how fast time runs. The line around the rim is the calendar: January at the top, going clockwise. Its height is how much lightning the visible side had, and the bright dot is now. Flashes leave a mark that fades, so you can watch lightning move north and south with the seasons.',
+      'It\'s rain on a music box. A flash plucks the note of the nearest line of latitude. There are thousands of flashes a second, so only a share of them pluck. Stormy months play more notes and quiet months play fewer. Under the notes, every flash is also a very soft click.',
+      'The notes come from the shape of the planet. A line of latitude near the pole is a shorter circle than the equator, so it sounds higher. You hear the side of the Earth that\'s facing you, with west in your left ear.',
+      'The slider moves through time. The line around the globe is a calendar with January at the top, and it rises when there\'s more lightning.',
     ],
     speedKeys: 'Faster or slower',
     timeKeys: 'Back or forward one month',
@@ -52,11 +52,11 @@ export default [
       'Miguel Román (Leidos), Ranjay Shrestha (SSAI), Srija Chakraborty (USRA), Virginia Kalb (NASA). ' +
       'Data: NASA Black Marble, Suomi NPP VIIRS. Coastlines: Natural Earth.',
     about:
-      'The lights of towns and cities at night, as a yearly average, from 2012 to 2023. More light mostly means more people, more roads and more power.',
+      'City lights at night, one map a year from 2012 to 2023.',
     sound: [
-      'A music box. The Earth is the drum and the cities are its pins. Each bright line across the globe has a note. When a city on that line crosses the middle of the globe, it plucks the note, louder for a brighter city. Dark ocean plays nothing. Drag the globe and you strum it.',
-      'The notes come from the shape of the planet. Lines nearer the poles are shorter circles, so they sound higher: 37 degrees is a major third above the equator, 48 degrees a fifth, 60 degrees an octave.',
-      'The Earth turns while it plays, so Asia, Europe and the Americas each bring their own tune, and the Pacific is nearly silent. As the years pass there are more lights, and more notes.',
+      'This one is a music box too. The Earth is the drum and the cities are the pins. When a city crosses the middle of the globe it plucks the note for its latitude, and a brighter city plucks harder. The ocean is silent. Drag the globe to strum it.',
+      'The notes come from the shape of the planet. Lines of latitude nearer the poles are shorter circles, so they sound higher. 37 degrees is a major third above the equator and 60 degrees is an octave.',
+      'As the years go by there are more lights, so there are more notes.',
     ],
     compare: 'Lights',
     quiet: 'Mostly dark on this side.',
@@ -81,13 +81,12 @@ export default [
       'Producer: Michael Starobin (HTSI). Scientists: Hong Zhang (UCLA), Dimitris Menemenlis (NASA/JPL Caltech). ' +
       'Data: ECCO2 High Resolution Ocean and Sea Ice Model (MIT/JPL). Coastlines: Natural Earth.',
     about:
-      'The temperature of the sea surface through one year, March 2007 to March 2008, from the ECCO2 ocean model. Bright is warm. ' +
-      'The warm water moves north and south with the sun, and currents carry it along the edges of the continents.',
+      'Sea surface temperature over one year, March 2007 to March 2008, from the ECCO2 ocean model. Brighter means warmer.',
     sound: [
-      'A slow held chord with low bells. Each line across the globe is a voice, and the water temperature along it shapes the voice. When the place where warm water meets cold on a line crosses the middle of the globe, it rings that line\'s note as a bell: the Gulf Stream, the cold water off Peru, the edges of the warm pools. Land adds nothing.',
-      'The notes come from the shape of the planet, as in the other worlds, but lower: lines nearer the poles are shorter circles, so they sound higher. The Earth turns while it plays and the year goes by, so the chord and the bells shift as the warm water moves.',
+      'A quiet chord with slow bells. Each line across the globe holds a note, and it gets louder where the water along it changes temperature. A bell rings when the edge between warm and cold water crosses the middle of the globe, like the Gulf Stream or the cold water off Peru.',
+      'Same notes as the other worlds, lower.',
     ],
-    quiet: 'The water on this side is close to one temperature along each line.',
+    quiet: 'The water on this side is close to one temperature.',
     speedKeys: 'Higher or lower pitch',
     timeKeys: 'Back or forward a few days',
     note: 'Temperatures are read from the colours of the picture, not from the model, so they show warm and cold, not measurements.',
