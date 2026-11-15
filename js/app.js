@@ -14,6 +14,12 @@ const ui = {
   play: $('play'), ring: $('ring'), wav: $('wav'), info: $('info'), about: $('about'), close: $('close'), globe: $('globe'),
   time: $('time'), date: $('date'),
   live: $('live'), status: $('status'), download: $('download'),
+  cc: $('cc'), cc1: $('cc1'), cc2: $('cc2'), cctext: $('cctext'), cctoggle: $('cctoggle'), mute: $('mute'), volume: $('volume'), meter: $('meter'),
+};
+// Remembered per browser: captions on or off, volume, mute. Storage can be blocked, so every use is guarded.
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('ej.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('ej.' + k, JSON.stringify(v)); } catch {} },
 };
 
 // Settings can be tried from the address bar without editing config.js.
@@ -39,7 +45,10 @@ document.documentElement.style.setProperty('--glow', `rgb(${look.dataGlow})`);
 // What every world shares: the scope, the side of the Earth facing the listener, the voice.
 // Room kept for the header and the controls, in CSS pixels. On narrow screens NASA's frame sits
 // above the globe, so the globe starts lower.
-const BOTTOM = 96, FILL = 0.39;
+// Below the globe: the date slider (96 px), and above it the captions and sound controls.
+const FILL = 0.39;
+let ccOn = store.get('captions', true);
+const BOTTOM = () => 96 + (ccOn ? (innerWidth <= 600 ? 112 : 92) : 50);
 const frameBox = () => { const w = Math.min(innerWidth * 0.62, 300); return { w, h: w / 2 }; };
 const TOP = () => (innerWidth <= 900 ? 112 + frameBox().h + 8 : 104);
 const app = {
@@ -56,9 +65,31 @@ const base = { x: new Float32Array(CELLS), y: new Float32Array(CELLS), z: new Fl
 const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let spinOn = !REDUCE, shownLon = null;
 let ds = null, world = null, playing = false, coast = null, scene = null;
-let ctx = null, out = null, wavUrl = null, lastSaid = 0, lastFrame = 0;
+let ctx = null, out = null, pre = null, master = null, meters = null, wavUrl = null, lastSaid = 0, lastFrame = 0;
+let muted = store.get('muted', false), volume = Math.max(0, Math.min(100, Number(store.get('volume', 80)) || 0));
 
-function say(text) { ui.live.textContent = ''; setTimeout(() => { ui.live.textContent = text; }, 40); lastSaid = performance.now(); }
+function say(text) { ui.live.textContent = ''; setTimeout(() => { ui.live.textContent = text; }, 40); lastSaid = performance.now(); caption(text); }
+
+// ---------- captions ----------
+// The first line says what is making the sound and what it stands for; the second what it is doing now.
+let lastCaption = 0, whooshing = 0;
+function caption(text) { ui.cc2.textContent = text; lastCaption = performance.now(); }
+function captionHead() {
+  const state = [];
+  if (muted) state.push('muted');
+  let head;
+  if (ds) {
+    if (!playing) state.push('paused');
+    head = `${ds.title}${state.length ? ` (${state.join(', ')})` : ''}: ${ds.caption}`;
+  } else head = `Menu${state.length ? ` (${state.join(', ')})` : ''}: ${datasets.length} worlds. Nothing plays until you pick one.`;
+  if (ui.cc1.textContent !== head) ui.cc1.textContent = head;
+}
+function setCaptions(on) {
+  ccOn = on; store.set('captions', on);
+  ui.cc.classList.toggle('off', !on);
+  ui.cctoggle.setAttribute('aria-pressed', String(on));
+  layout();
+}
 
 // ---------- the worlds ----------
 // Each world keeps its own turning globe for its whole life: a small picture of it is what
@@ -103,8 +134,8 @@ async function build() {
 // Where world i's big globe sits on screen (the same sum the scope does), in CSS pixels.
 function landing(i) {
   const ticks = planets[i].d.kind === 'events', W = innerWidth, H = innerHeight;
-  const top = TOP();
-  return { x: W / 2, y: top + (H - top - BOTTOM) / 2, r: Math.max(20, Math.min(W * FILL, (H - top - BOTTOM) / 2 / (ticks ? 1.26 : 1.04))) };
+  const top = TOP(), bottom = BOTTOM();
+  return { x: W / 2, y: top + (H - top - bottom) / 2, r: Math.max(20, Math.min(W * FILL, (H - top - bottom) / 2 / (ticks ? 1.26 : 1.04))) };
 }
 const planetOf = (d) => planets.find((p) => p.d === d);
 
@@ -130,6 +161,8 @@ async function route(first) {
   if (from && !first) { const q = planetOf(from), t = landing(planets.indexOf(q)); q.scope.setSize(Math.min(1500, Math.ceil((t.r * 2 * Math.min(devicePixelRatio || 1, 2)) / 0.94))); }   // and is drawn sharp at full size while it goes
   playing = false; ui.play.textContent = 'Play';
   ds = d; world = null;
+  captionHead();
+  if (d && from) caption(`Fading from ${from.title} to ${d.title}.`); else if (d) caption(`Flying to ${d.title}.`);
   showNasa(false);
   ui.status.textContent = '';
   [...ui.tabs.children].forEach((t, i) => t.setAttribute('aria-current', String(datasets[i] === d)));
@@ -199,8 +232,8 @@ const turn = (dLon, dLat) => {
 // ---------- audio ----------
 // The space around the sound: a long reverb and an echo that bounces from side to side.
 // Built the same way for the live sound and for the WAV file.
-function buildFx(ac, input, fx) {
-  input.connect(ac.destination);
+function buildFx(ac, input, fx, dest = ac.destination) {
+  input.connect(dest);
   if (fx.reverb > 0) {
     const len = Math.floor(ac.sampleRate * fx.reverbSeconds), ir = ac.createBuffer(2, len, ac.sampleRate);
     let seed = 20261114; const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2147483648) - 1;   // the same room every time
@@ -214,7 +247,7 @@ function buildFx(ac, input, fx) {
     }
     const conv = ac.createConvolver(); conv.buffer = ir;
     const wet = ac.createGain(); wet.gain.value = fx.reverb * 1.6;
-    input.connect(conv).connect(wet).connect(ac.destination);
+    input.connect(conv).connect(wet).connect(dest);
   }
   if (fx.delay > 0) {
     const dl = ac.createDelay(2), dr = ac.createDelay(2), fb = ac.createGain(), tone = ac.createBiquadFilter();
@@ -223,7 +256,7 @@ function buildFx(ac, input, fx) {
     fb.gain.value = fx.delayFeedback; tone.type = 'lowpass'; tone.frequency.value = 2600; wet.gain.value = fx.delay; mono.gain.value = 0.6;
     input.connect(mono).connect(dl); dl.connect(dr); dr.connect(tone).connect(fb).connect(dl);    // left, then right, then round again
     dl.connect(merge, 0, 0); dr.connect(merge, 0, 1);
-    merge.connect(wet).connect(ac.destination);
+    merge.connect(wet).connect(dest);
   }
 }
 
@@ -234,7 +267,14 @@ function unlockAudio() {
     if (!ctx) {
       if (navigator.audioSession) { try { navigator.audioSession.type = 'playback'; } catch {} }
       ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-      out = ctx.createGain(); buildFx(ctx, out, settings.effects);
+      // worlds -> out -> room -> pre -> master (volume, mute) -> speakers. The meter listens at `pre`,
+      // so it still moves with the sound when the sound is muted.
+      pre = ctx.createGain(); master = ctx.createGain(); master.gain.value = gainFor();
+      pre.connect(master).connect(ctx.destination);
+      const split = ctx.createChannelSplitter(2);
+      pre.connect(split);
+      meters = [0, 1].map((c) => { const a = ctx.createAnalyser(); a.fftSize = 1024; split.connect(a, c); return a; });
+      out = ctx.createGain(); buildFx(ctx, out, settings.effects, pre);
       ctx.ready = ctx.audioWorklet.addModule('js/dsp.js');
     }
     ctx.resume();
@@ -262,7 +302,9 @@ function whoosh(seconds) {
     g.gain.linearRampToValueAtTime(level * 0.15, t0 + seconds * w.peakAt * 0.45);     // a slow start, then the swell
     g.gain.linearRampToValueAtTime(level, peak);
     g.gain.exponentialRampToValueAtTime(0.0005, end);
-    src.connect(bp).connect(g).connect(ctx.destination);
+    src.connect(bp).connect(g).connect(pre);
+    whooshing = performance.now() + (end - t0) * 1000;
+    caption('Sound: a rising whoosh as you fly into the arcade screen.');
     if (w.room > 0) { const send = ctx.createGain(); send.gain.value = w.room; g.connect(send).connect(out); }
     src.start(t0); src.stop(end + 0.05);
   } catch {}
@@ -301,6 +343,7 @@ async function setPlaying(on, quiet) {
   if (on) { world.setPlaying(true); fade(world, 1, quiet ? FADE : 0.15); }
   else if (world) fade(world, 0, 0.25);                   // a short fade, so a pause does not click
   ui.play.textContent = on ? 'Pause' : 'Play';
+  captionHead();
   if (world && on !== was && !quiet) say(on ? world.describe() : 'Paused. ' + world.describe());
 }
 
@@ -360,12 +403,18 @@ function tick(now) {
   if (mode !== shownMode) {                               // only the place we are in can be touched
     shownMode = mode;
     ui.player.inert = mode !== 'world'; frame.inert = mode !== 'world'; ui.hub.hidden = mode !== 'menu';
+    // arriving in a world: if focus was left on the menu (now hidden) or nowhere, put it on the globe
+    const f = document.activeElement;
+    if (mode === 'world' && !ui.about.open && (!f || f === document.body || ui.hub.contains(f))) ui.globe.focus({ preventScroll: true });
     if (mode === 'menu' && !ui.about.open) (planets[Math.max(0, scene.active)] || planets[0]).button.focus({ preventScroll: true });
     ui.header.hidden = scene.mode === 'attract' && !moving;
+    ui.cc.hidden = ui.header.hidden;
     document.body.dataset.place = mode;
   }
 
+  drawMeter(now);
   if (!world) return;
+  if (playing && now - lastCaption > 3000) caption(world.describe());
   world.frame(dt);
   syncNasa(now);
   if (!(mv && k < 0.5)) readouts(false);                  // the old readouts fade out as they were
@@ -427,7 +476,8 @@ function showInfo() {
     p(d.about); d.sound.forEach(p);
     keys.hidden = false;
     const rows = [['Space', 'Play or pause'], ['← →', 'Turn the globe'], ['Shift ↑ ↓', 'Tilt the globe'], ['↑ ↓', d.speedKeys], [', .', d.timeKeys]];
-    rows.push(['[ ]', 'Previous or next world'], ['S', 'Stop or start the turning'], ['D', 'Say what is playing'], ['W', 'Export the audio as a WAV file'], ['Esc', 'Back to the menu']);
+    rows.push(['[ ]', 'Previous or next world'], ['S', 'Stop or start the turning'], ['D', 'Say what is playing'], ['M', 'Mute or unmute'], ['C', 'Show or hide the captions'],
+      ['W', 'Export the audio as a WAV file'], ['I', 'This panel'], ['Esc', 'Close a panel, or back to the menu']);
     for (const [k, v] of rows) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; keys.append(dt, dd); }
     $('credit').textContent = `${d.credit} Source: ${d.sourceTitle}, ${d.sourceUrl}. ${d.note}`;
   }
@@ -511,6 +561,50 @@ function syncNasa(now) {
   if (Math.abs(vid.currentTime - t) > 0.06) { vid.currentTime = t; lastSeek = now; }
 }
 
+// ---------- volume, mute, meter ----------
+function gainFor() { return muted ? 0 : Math.pow(volume / 100, 2); }
+function applyGain() {
+  if (master) { const t = ctx.currentTime; master.gain.cancelScheduledValues(t); master.gain.setTargetAtTime(gainFor(), t, 0.04); }
+  ui.mute.setAttribute('aria-pressed', String(muted));
+  ui.mute.textContent = muted ? 'Unmute' : 'Mute';
+  ui.volume.value = String(volume);
+  ui.volume.setAttribute('aria-valuetext', muted ? `${volume} percent, muted` : `${volume} percent`);
+  captionHead();
+}
+function setMuted(on) { muted = on; store.set('muted', on); applyGain(); say(on ? 'Sound muted. The captions and the meter carry on.' : 'Sound on.'); }
+ui.mute.addEventListener('click', () => setMuted(!muted));
+ui.volume.addEventListener('input', () => { volume = Number(ui.volume.value); store.set('volume', volume); if (muted && volume > 0) { muted = false; store.set('muted', false); } applyGain(); });
+ui.cctoggle.addEventListener('click', () => setCaptions(!ccOn));
+
+// Two bars, left ear over right ear, with a peak mark that falls back slowly.
+const mctx = ui.meter.getContext('2d'), mbuf = new Float32Array(1024), mlev = [0, 0], mpeak = [0, 0];
+let mlast = 0;
+function drawMeter(now) {
+  const dt = Math.min(0.1, (now - mlast) / 1000 || 0); mlast = now;
+  if (ui.cc.hidden) return;
+  for (let c = 0; c < 2; c++) {
+    let rms = 0;
+    if (meters && ctx.state === 'running') { meters[c].getFloatTimeDomainData(mbuf); for (let i = 0; i < mbuf.length; i++) rms += mbuf[i] * mbuf[i]; rms = Math.sqrt(rms / mbuf.length); }
+    const db = rms > 1e-5 ? 20 * Math.log10(rms) : -100, v = Math.max(0, Math.min(1, (db + 54) / 48));   // -54 dB to -6 dB
+    mlev[c] = v > mlev[c] ? v : mlev[c] + (v - mlev[c]) * Math.min(1, dt * 8);
+    mpeak[c] = Math.max(v, mpeak[c] - dt * 0.4);
+  }
+  const W = ui.meter.width, H = ui.meter.height, bh = (H - 4) / 2;
+  mctx.clearRect(0, 0, W, H);
+  for (let c = 0; c < 2; c++) {
+    const y = c * (bh + 4);
+    mctx.fillStyle = 'rgba(238,241,245,0.18)'; mctx.fillRect(0, y, W, bh);
+    mctx.fillStyle = look.accent; mctx.fillRect(0, y, Math.round(W * mlev[c]), bh);
+    mctx.fillRect(Math.min(W - 2, Math.round(W * mpeak[c])), y, 2, bh);
+  }
+}
+
+// The globe gets what is left after the header, the captions and the date slider.
+function layout() {
+  ui.globe.style.bottom = `${BOTTOM()}px`;
+  app.scope.resize(); app.scope.touch();
+}
+
 ui.home.addEventListener('click', goHome);
 ui.play.addEventListener('click', () => { ui.status.textContent = ''; setPlaying(!playing); });
 ui.wav.addEventListener('click', makeWav);
@@ -551,6 +645,8 @@ document.addEventListener('keydown', (e) => {
   const tag = e.target.tagName, k = e.key;
   if (k === 'i' || k === '?') { e.preventDefault(); showInfo(); return; }
   if (k === 'Escape' && frame.classList.contains('big')) { e.preventDefault(); bigNasa(false); return; }
+  if ((k === 'm' || k === 'M')) { e.preventDefault(); setMuted(!muted); return; }
+  if ((k === 'c' || k === 'C')) { e.preventDefault(); setCaptions(!ccOn); say(ccOn ? 'Captions on.' : 'Captions off.'); return; }
   if (k === 'Escape' && !ds && scene.mode === 'menu' && !scene.moving) { e.preventDefault(); scene.go({ mode: 'attract' }, 1.6, attract); return; }   // back to the start
   if (!world || scene.moving) return;
   if (k === 'Escape') { e.preventDefault(); goHome(); return; }
@@ -576,8 +672,9 @@ document.addEventListener('keydown', (e) => {
 });
 
 const sizeFrame = () => { const b = frameBox(); frame.style.setProperty('--fw', `${b.w}px`); };
-window.addEventListener('resize', () => { app.scope.resize(); app.scope.touch(); scene?.resize(); sizeFrame(); });
+window.addEventListener('resize', () => { layout(); scene?.resize(); sizeFrame(); });
 sizeFrame();
+applyGain(); setCaptions(ccOn); captionHead();
 window.addEventListener('hashchange', () => route(false));
 app.scope.resize();
 build().then(() => route(true)).then(() => requestAnimationFrame(tick)).catch((e) => { ui.status.textContent = 'Could not load: ' + e.message; });

@@ -31,7 +31,7 @@ export function makeScope(canvas, cfg, look, opts = {}) {
     for (const c of [canvas, base, phos, heat]) { c.width = w; c.height = h; }
     heatDirty = true;
     // leave room for the title above and the two control rows below
-    const t = (typeof top === 'function' ? top() : top) * dpr, b = bottom * dpr;
+    const t = (typeof top === 'function' ? top() : top) * dpr, b = (typeof bottom === 'function' ? bottom() : bottom) * dpr;
     R = Math.max(20, Math.min(w * fill, (h - t - b) / 2 / (ticks ? 1.26 : 1.04)));
     cx = w / 2; cy = t + (h - t - b) / 2;
     baseDirty = true; placed = false;

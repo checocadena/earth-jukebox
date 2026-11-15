@@ -62,6 +62,23 @@
   <figcaption><a id="framesrc" href="#" target="_blank" rel="noopener"></a></figcaption>
 </figure>
 
+<!-- What the sound is doing, for people who can't hear it: captions, a meter and the sound controls.
+     Not a live region: #live already speaks the same news to screen readers. -->
+<section id="cc" class="cc" aria-label="Captions and sound" hidden>
+  <div class="meter" aria-hidden="true" title="Sound level. W is the left ear (west), E the right ear (east).">
+    <span>W</span><canvas id="meter" width="120" height="24"></canvas><span>E</span>
+  </div>
+  <div id="cctext" class="cctext">
+    <p id="cc1" class="cc1"></p>
+    <p id="cc2" class="cc2"></p>
+  </div>
+  <div class="sound">
+    <button id="cctoggle" type="button" class="btn small" aria-pressed="true" title="Captions (C)">Captions</button>
+    <button id="mute" type="button" class="btn small" aria-pressed="false" title="Mute (M)">Mute</button>
+    <label class="vol"><span class="sr-only">Volume</span><input id="volume" aria-label="Volume" type="range" min="0" max="100" step="5" value="80"></label>
+  </div>
+</section>
+
 <p id="status" class="status" role="status"></p>
 
 <div id="live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
@@ -71,6 +88,30 @@
   <h2 id="about-h" class="title small"></h2>
   <div id="about-body"></div>
   <dl id="keys" class="keys"></dl>
+
+  <h3>The challenge</h3>
+  <p>Earth Jukebox is an entry in the NASA Space Apps Challenge 2026, for the challenge <a href="https://www.spaceappschallenge.org/2026/challenges/the-earth-information-jukebox/" target="_blank" rel="noopener">The Earth Information Jukebox</a>.</p>
+  <blockquote>
+    <p>“…presenting Earth science through visualization alone limits who can reach it.”</p>
+    <footer>The Earth Information Jukebox, NASA Space Apps Challenge 2026</footer>
+  </blockquote>
+  <p>NASA’s Earth Information Center (EIC) makes animations of how the planet is changing, and almost all of it is visual, which leaves blind and low-vision people out. The challenge asks teams to build an Earth Jukebox: something that pairs EIC visual frames with sound generated in real time, so people can choose a visualization and hear it. Accessibility is at the centre of the brief.</p>
+
+  <h3>How Earth Jukebox answers it</h3>
+  <p>Each world here is one EIC animation. Scripts read the data out of its frames, and your browser turns that data into notes as the Earth turns, live, with the Web Audio API. Every line of latitude has its own note. NASA’s original frame plays beside the globe at the same date, so you can see and hear the same moment.</p>
+
+  <h3>NASA data and imagery</h3>
+  <ul class="sources">
+    <li><a href="https://svs.gsfc.nasa.gov/5011/" target="_blank" rel="noopener">Lightning Events Detected from the International Space Station (ISS) 2017-2023</a>, NASA SVS 5011. Lightning Imaging Sensor on the ISS, NASA GHRC.</li>
+    <li><a href="https://svs.gsfc.nasa.gov/5313/" target="_blank" rel="noopener">Change in Night Lights between 2012 and 2023, EIC Version</a>, NASA SVS 5313. NASA Black Marble, Suomi NPP VIIRS.</li>
+    <li><a href="https://svs.gsfc.nasa.gov/3912/" target="_blank" rel="noopener">Global Sea Surface Currents and Temperature</a>, NASA SVS 3912. ECCO2 ocean and sea ice model (MIT/JPL).</li>
+  </ul>
+  <p class="fine">All three are in the EIC resources listed for the challenge. Coastlines come from Natural Earth (public domain).</p>
+
+  <h3>If you can’t hear it</h3>
+  <p>Captions along the bottom say what the sound of each world stands for and what is happening on the side of the Earth facing you. The meter next to them moves with the sound: the top bar is your left ear (west) and the bottom bar your right ear (east). There is no narration or voice anywhere in Earth Jukebox, so the captions are the whole transcript. Outside the worlds the only sound is a rising whoosh as you fly into the machine, and it gets a caption too.</p>
+  <p>Mute and Volume sit next to the captions. M mutes, C shows or hides the captions, I opens this panel and Escape closes it. If your device asks for less motion, the camera doesn’t fly and the globes stay still.</p>
+
   <p id="credit" class="fine"></p>
   <p class="fine">Made for the NASA Space Apps Challenge 2026. NASA does not endorse this project.</p>
 </dialog>
