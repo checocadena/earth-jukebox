@@ -51,6 +51,18 @@ export default {
   // bounces from side to side. 0 = none, 1 = as much echo or reverb as direct sound.
   effects: { reverb: 0.55, reverbSeconds: 5, delay: 0.3, delaySeconds: 0.42, delayFeedback: 0.42 },
 
+  // PLACEHOLDER. A whoosh as the camera flies into the arcade screen after "Click to start".
+  // It is noise through a filter, made live (no recording). It swells as the camera speeds up and
+  // dies away as the worlds appear. It only plays on that first flight.
+  //   level        loudness at its peak (0 = no whoosh). 0.35 sits well under the music.
+  //   fromHz toHz  the filter rises from fromHz to toHz on the way in, so it gets brighter
+  //   q            how narrow the filter is: higher whistles more, lower is more breath
+  //   peakAt       when it is loudest, as a share of the flight (the flight is 3.4 s, set in js/app.js)
+  //   tailSeconds  how long it takes to die away after the worlds appear
+  //   room         how much of it goes into the reverb and echo (0 = dry)
+  //   reducedMotionLevel  level when the system asks for less motion. There is no flight then, so 0.
+  whoosh: { level: 0.35, fromHz: 180, toHz: 1500, q: 0.9, peakAt: 0.82, tailSeconds: 0.7, room: 0.25, reducedMotionLevel: 0 },
+
   // ---- Map worlds (night lights, ocean) --------------------------------
   // PLACEHOLDER mapping. Each chosen line of latitude has a pitch. All read
   // heads move over the ground at the same speed, and lines nearer the poles

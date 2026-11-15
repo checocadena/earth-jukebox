@@ -54,11 +54,13 @@
       <input id="time" type="range" min="0" max="1000" step="1" value="0" aria-label="Date"></label>
   </div>
   <a id="download" class="sr-only" tabindex="-1" aria-hidden="true"></a>
-  <figure id="frame" class="frame" hidden>
-    <button id="framebtn" type="button" aria-expanded="false" aria-label="NASA's original animation, at the same moment. Enlarge."><video id="nasavid" muted playsinline preload="auto"></video></button>
-    <figcaption><a id="framesrc" href="#" target="_blank" rel="noopener"></a></figcaption>
-  </figure>
 </main>
+
+<div id="nasaback" class="nasaback" hidden></div>
+<figure id="frame" class="frame" hidden>
+  <button id="framebtn" type="button" aria-expanded="false" aria-label="NASA's original animation, at the same moment. Enlarge."><video class="on" muted playsinline preload="auto"></video><video muted playsinline preload="auto"></video></button>
+  <figcaption><a id="framesrc" href="#" target="_blank" rel="noopener"></a></figcaption>
+</figure>
 
 <p id="status" class="status" role="status"></p>
 

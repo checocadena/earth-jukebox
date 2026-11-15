@@ -169,9 +169,9 @@ function attract() {
   const begin = () => {
     if (ui.start.hidden) return;
     ui.start.hidden = true;
-    unlockAudio();
+    unlockAudio(); whoosh(3.4);
     removeEventListener('keydown', key, true); removeEventListener('pointerdown', begin, true);
-    scene.go({ mode: 'menu' }, 3.4, () => { say(`${project.title}. ${datasets.length} worlds: ${datasets.map((x) => x.title).join(', ')}.`); planets[0].button.focus({ preventScroll: true }); });
+    scene.go({ mode: 'menu' }, 3.4,() => { say(`${project.title}. ${datasets.length} worlds: ${datasets.map((x) => x.title).join(', ')}.`); planets[0].button.focus({ preventScroll: true }); });
   };
   const key = (e) => { if (!['Shift', 'Control', 'Alt', 'Meta', 'Tab'].includes(e.key)) { e.preventDefault(); begin(); } };
   addEventListener('keydown', key, true); addEventListener('pointerdown', begin, true);
@@ -238,6 +238,33 @@ function unlockAudio() {
       ctx.ready = ctx.audioWorklet.addModule('js/dsp.js');
     }
     ctx.resume();
+  } catch {}
+}
+
+// The flight into the arcade screen: noise through a band-pass filter that rises and swells with
+// the camera, then dies away as the worlds appear. Settings in config.js under `whoosh`.
+function whoosh(seconds) {
+  const w = settings.whoosh, level = REDUCE ? w.reducedMotionLevel : w.level;
+  if (!ctx || !(level > 0)) return;
+  try {
+    const sr = ctx.sampleRate, t0 = ctx.currentTime + 0.03, peak = t0 + seconds * w.peakAt, end = t0 + seconds + w.tailSeconds;
+    const len = Math.ceil((end - t0 + 0.1) * sr), buf = ctx.createBuffer(2, len, sr);
+    for (let c = 0; c < 2; c++) {                         // a different noise in each ear, so it is wide
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = buf; bp.type = 'bandpass'; bp.Q.value = w.q;
+    bp.frequency.setValueAtTime(w.fromHz, t0);
+    bp.frequency.exponentialRampToValueAtTime(w.toHz, peak);
+    bp.frequency.exponentialRampToValueAtTime(Math.max(w.fromHz, w.toHz * 0.45), end);   // it darkens as it settles
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(level * 0.15, t0 + seconds * w.peakAt * 0.45);     // a slow start, then the swell
+    g.gain.linearRampToValueAtTime(level, peak);
+    g.gain.exponentialRampToValueAtTime(0.0005, end);
+    src.connect(bp).connect(g).connect(ctx.destination);
+    if (w.room > 0) { const send = ctx.createGain(); send.gain.value = w.room; g.connect(send).connect(out); }
+    src.start(t0); src.stop(end + 0.05);
   } catch {}
 }
 
@@ -318,13 +345,21 @@ function tick(now) {
   if (live >= 0) app.scope.place(s.moving ? s.spots[live] || { x: -9999, y: -9999, r: 2 } : null);
   if (!s.moving) for (const p of planets) p.scope.setSize(PIC);  // pictures go back to their small size once we have arrived
   const k = s.moving ? s.moving.k : before ? 1 : 0;
-  const uiAlpha = !world ? 0 : s.moving ? (s.moving.to.mode === 'world' ? smooth((k - 0.72) / 0.28) : 0) : 1;   // the controls come in at the end of a flight
+  // The controls fade out as a flight leaves a world and come back in at the end of a flight into one.
+  // NASA's frame stays up between two worlds and fades from one picture to the next.
+  const mv = s.moving, fromWorld = !!mv && mv.from.mode === 'world', toWorld = !!mv && mv.to.mode === 'world';
+  const uiAlpha = mv ? Math.max(fromWorld ? 1 - smooth(k / 0.2) : 0, toWorld && world ? smooth((k - 0.72) / 0.28) : 0) : world ? 1 : 0;
+  const frameAlpha = fromWorld && toWorld ? 1 : uiAlpha;
   ui.scopeCanvas.style.opacity = world ? '1' : '0';
   ui.player.style.opacity = String(uiAlpha); ui.tabs.style.opacity = String(ds ? Math.max(uiAlpha, 0.35) : 0);
+  frame.style.opacity = String(frameAlpha);
   const mode = moving ? 'moving' : scene.mode;
+  const playerHidden = mode !== 'world' && uiAlpha <= 0, frameHidden = (frameAlpha <= 0 && mode !== 'world') || !vid.dataset.src || (!nasaOn && frameAlpha <= 0);
+  if (ui.player.hidden !== playerHidden) ui.player.hidden = playerHidden;
+  if (frame.hidden !== frameHidden) frame.hidden = frameHidden;
   if (mode !== shownMode) {                               // only the place we are in can be touched
     shownMode = mode;
-    ui.player.hidden = mode !== 'world'; ui.hub.hidden = mode !== 'menu';
+    ui.player.inert = mode !== 'world'; frame.inert = mode !== 'world'; ui.hub.hidden = mode !== 'menu';
     if (mode === 'menu' && !ui.about.open) (planets[Math.max(0, scene.active)] || planets[0]).button.focus({ preventScroll: true });
     ui.header.hidden = scene.mode === 'attract' && !moving;
     document.body.dataset.place = mode;
@@ -333,7 +368,7 @@ function tick(now) {
   if (!world) return;
   world.frame(dt);
   syncNasa(now);
-  readouts(false);
+  if (!(mv && k < 0.5)) readouts(false);                  // the old readouts fade out as they were
   if (playing && now - lastSaid > settings.describeEverySeconds * 1000) say(world.describe());
 }
 
@@ -408,25 +443,71 @@ const goHome = () => {
 const hop = (n) => { const i = datasets.indexOf(ds); if (i >= 0) { unlockAudio(); location.hash = datasets[(i + n + datasets.length) % datasets.length].id; } };
 
 // NASA's own picture, beside ours, kept at the same moment as the sound.
-const frame = $('frame'), vid = $('nasavid');
-let nasaOn = false, lastSeek = 0;
+// It has two videos that take turns: going to another world, the new picture fades in over the old one.
+const frame = $('frame'), back = $('nasaback'), fbtn = $('framebtn'), vids = [...frame.querySelectorAll('video')];
+let vid = vids[0], nasaOn = false, lastSeek = 0, pending = null;
+const setShape = (v) => { if (v === vid && v.videoWidth) frame.style.setProperty('--ar', String(v.videoWidth / v.videoHeight)); };
+vids.forEach((v) => v.addEventListener('loadedmetadata', () => { if (v !== pending?.v) setShape(v); }));
 function showNasa(on) {
   nasaOn = !!on && !!ds?.video;
-  frame.hidden = !nasaOn; frame.classList.remove('big');
+  if (frame.classList.contains('big')) bigNasa(false, true);
   if (!nasaOn) return;
-  if (vid.dataset.src !== ds.video.src) { vid.dataset.src = ds.video.src; vid.src = ds.video.src; }
   const a = $('framesrc'); a.href = ds.sourceUrl; a.textContent = ds.video.label;
+  if (vid.dataset.src === ds.video.src) return;
+  const showing = !frame.hidden && !!vid.dataset.src;
+  const prev = vid;
+  vid = showing ? vids.find((v) => v !== prev) : prev;
+  vid.dataset.src = ds.video.src; vid.src = ds.video.src; lastSeek = 0;
+  if (pending) pending.v.classList.remove('next');
+  if (!showing) { vids.forEach((v) => v.classList.toggle('on', v === vid)); pending = null; return; }
+  vid.classList.remove('on'); vid.classList.add('next');
+  pending = { v: vid, prev, since: performance.now() };   // shown once it has the right moment on it
 }
-// Click NASA's frame to see it large; click again or press Escape to put it back.
-function bigNasa(on) {
-  frame.classList.toggle('big', on);
-  $('framebtn').setAttribute('aria-expanded', String(on));
+// The waiting picture fades in once it is at the right moment (or after a while, whatever it has).
+function revealNasa(now, t) {
+  const p = pending; if (!p || p.v !== vid) return;
+  const ready = vid.readyState >= 2 && !vid.seeking && Math.abs(vid.currentTime - t) < 0.12;
+  if (!ready && now - p.since < 1500) return;
+  pending = null;
+  frame.classList.add('swapping'); setShape(vid);
+  vid.classList.add('on');
+  setTimeout(() => {
+    if (p.prev !== vid) p.prev.classList.remove('on');
+    vid.classList.remove('next'); frame.classList.remove('swapping');
+  }, 650);
+}
+// Click NASA's frame to see it large; click again or press Escape to put it back. The picture grows
+// out of the small frame and shrinks back into it.
+const BIG_MS = 420;
+let bigTimer = 0;
+function bigNasa(on, instant) {
+  if (on === frame.classList.contains('big')) return;
+  const first = fbtn.getBoundingClientRect();
+  clearTimeout(bigTimer); fbtn.getAnimations().forEach((x) => x.cancel());
+  frame.classList.toggle('big', on); frame.classList.add('lift');
+  fbtn.setAttribute('aria-expanded', String(on));
+  fbtn.setAttribute('aria-label', on ? "NASA's original animation, enlarged. Make small again." : "NASA's original animation, at the same moment. Enlarge.");
+  if (on) { back.hidden = false; void back.offsetWidth; }
+  back.classList.toggle('on', on);
+  const done = () => { frame.classList.remove('lift'); if (!frame.classList.contains('big')) back.hidden = true; };
+  if (instant) { back.classList.remove('on'); done(); return; }
   say(on ? `NASA's animation, enlarged: ${ds.sourceTitle}. Press Escape to close.` : "NASA's animation, small again.");
+  const last = fbtn.getBoundingClientRect();
+  if (REDUCE) fbtn.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' });
+  else {
+    const from = `translate(${first.left - last.left}px, ${first.top - last.top}px) scale(${first.width / last.width}, ${first.height / last.height})`;
+    fbtn.animate([{ transform: from }, { transform: 'none' }], { duration: BIG_MS, easing: 'cubic-bezier(0.2, 0.75, 0.25, 1)' });
+    frame.querySelector('figcaption').animate([{ opacity: 0 }, { opacity: 0, offset: 0.7 }, { opacity: 1 }], { duration: BIG_MS + 150 });   // the label comes once the picture has landed
+  }
+  bigTimer = setTimeout(done, REDUCE ? 400 : Math.max(BIG_MS, 400));
 }
-$('framebtn').addEventListener('click', () => bigNasa(!frame.classList.contains('big')));
+fbtn.addEventListener('click', () => bigNasa(!frame.classList.contains('big')));
+back.addEventListener('click', () => bigNasa(false));
 function syncNasa(now) {
-  if (!nasaOn || !world || now - lastSeek < 180 || vid.readyState < 1 || vid.seeking) return;
+  if (!nasaOn || !world || vid.readyState < 1) return;
   const t = Math.min(world.videoTime(), (vid.duration || 1e9) - 0.05);
+  revealNasa(now, t);
+  if (now - lastSeek < 180 || vid.seeking) return;
   if (Math.abs(vid.currentTime - t) > 0.06) { vid.currentTime = t; lastSeek = now; }
 }
 
@@ -495,7 +576,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 const sizeFrame = () => { const b = frameBox(); frame.style.setProperty('--fw', `${b.w}px`); };
-window.addEventListener('resize', () => { app.scope.resize(); app.scope.touch(); scene.resize(); sizeFrame(); });
+window.addEventListener('resize', () => { app.scope.resize(); app.scope.touch(); scene?.resize(); sizeFrame(); });
 sizeFrame();
 window.addEventListener('hashchange', () => route(false));
 app.scope.resize();
