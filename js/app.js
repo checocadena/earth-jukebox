@@ -513,7 +513,8 @@ vids.forEach((v) => v.addEventListener('loadedmetadata', () => { if (v !== pendi
 function showNasa(on) {
   nasaOn = !!on && !!ds?.video;
   if (frame.classList.contains('big')) bigNasa(false, true);
-  if (!nasaOn) return;
+  vPrevT = null; vRate = 0;
+  if (!nasaOn) { vids.forEach((v) => v.pause()); return; }
   const a = $('framesrc'); a.href = ds.sourceUrl; a.textContent = ds.video.label;
   if (vid.dataset.src === ds.video.src) return;
   const showing = !frame.hidden && !!vid.dataset.src;
@@ -534,7 +535,7 @@ function revealNasa(now, t) {
   frame.classList.add('swapping'); setShape(vid);
   vid.classList.add('on');
   setTimeout(() => {
-    if (p.prev !== vid) p.prev.classList.remove('on');
+    if (p.prev !== vid) { p.prev.classList.remove('on'); p.prev.pause(); }
     vid.classList.remove('next'); frame.classList.remove('swapping');
   }, 650);
 }
@@ -565,12 +566,30 @@ function bigNasa(on, instant) {
 }
 fbtn.addEventListener('click', () => bigNasa(!frame.classList.contains('big')));
 back.addEventListener('click', () => bigNasa(false));
+// The video plays at the speed the sound moves through it, and is nudged faster or slower to stay
+// in step. It is only seeked on a jump (a loop, the slider, the date keys), when paused, or when the
+// speed is beyond what a video can play (Chrome allows 1/16 to 16 times).
+let vRate = 0, vPrevT = null, vPrevNow = 0;
+window.ejVideoGap = () => (world && nasaOn ? world.videoTime() - vid.currentTime : null);   // for testing: seconds between the sound and NASA's frame
 function syncNasa(now) {
   if (!nasaOn || !world || vid.readyState < 1) return;
   const t = Math.min(world.videoTime(), (vid.duration || 1e9) - 0.05);
   revealNasa(now, t);
+  if (vPrevT !== null && now > vPrevNow && Math.abs(t - vPrevT) < 0.5) {
+    const r = (t - vPrevT) / ((now - vPrevNow) / 1000);
+    vRate += (r - vRate) * Math.min(1, (now - vPrevNow) / 250);        // smoothed over about a quarter of a second
+  }
+  vPrevT = t; vPrevNow = now;
+  const drift = t - vid.currentTime;
+  if (playing && vRate >= 0.07 && vRate <= 15 && Math.abs(drift) < 0.75 && !vid.seeking) {
+    const want = Math.max(0.0625, Math.min(16, vRate + drift * 0.8));   // catch up on a drift within about a second
+    if (Math.abs(vid.playbackRate - want) > 0.03 * want) vid.playbackRate = want;
+    if (vid.paused) vid.play().catch(() => {});
+    return;
+  }
+  if (!vid.paused) vid.pause();
   if (now - lastSeek < 180 || vid.seeking) return;
-  if (Math.abs(vid.currentTime - t) > 0.06) { vid.currentTime = t; lastSeek = now; }
+  if (Math.abs(drift) > 0.06) { vid.currentTime = t; lastSeek = now; }
 }
 
 // ---------- volume, mute, meter ----------
