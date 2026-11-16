@@ -32,3 +32,7 @@ Any static server that supports byte ranges, for example `npx http-server -p 812
 
 ## Deadline
 Global submission: Sun Nov 15, 11:59 pm ET. Needs a project page, a demo, and a statement of how AI tools were used.
+
+## Use of AI
+
+The code in this repository was written with Claude Code, Anthropic's AI coding assistant, directed by Checo Cadena, who made the design and sound decisions and tested every version. All sound is generated live in the browser from NASA's data. No AI-generated audio, images, video or voice are used in the app or the demo video.
