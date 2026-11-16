@@ -129,7 +129,8 @@ dialog a { color: var(--ink); }
 
 @media (max-width: 520px) {
   header nav { gap: 6px; }
-  header nav .btn { padding: 9px 9px; font-size: 12px; letter-spacing: 0.05em; }
+  header nav .btn { padding: 9px 7px; font-size: 12px; letter-spacing: 0.03em; white-space: nowrap; }
+  header nav .btn.icon { width: 40px; padding: 0; }
   .row { grid-template-columns: 104px 1fr; }
   .value { font-size: 19px; }
 }
@@ -138,30 +139,26 @@ dialog a { color: var(--ink); }
   .frame.swapping button, .frame video.next, .nasaback { transition: none; }
 }
 
-/* Captions, meter and sound controls: a strip above the date slider. */
+/* Captions and meter: a strip above the date slider, shown by the Accessibility button. */
 .cc { position: fixed; z-index: 4; left: 50%; transform: translateX(-50%); bottom: calc(max(18px, env(safe-area-inset-bottom)) + 46px);
-  width: min(880px, calc(100vw - 32px)); display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px 16px;
+  width: min(880px, calc(100vw - 32px)); display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px 16px;
   padding: 8px 12px; min-height: 84px; background: rgb(0 0 0 / 0.78); border: 1px solid rgb(238 241 245 / 0.22); }
 .cc p { margin: 0; }
 .cc1 { font: 600 14px/1.35 var(--body); color: #fff; }
 .cc2 { font: 400 15px/1.4 var(--body); color: rgb(255 255 255 / 0.9); }
 .meter { display: grid; grid-template-columns: auto 72px auto; align-items: center; gap: 6px; font: 600 11px var(--body); color: var(--dim); }
 .meter canvas { width: 72px; height: 24px; display: block; }
-.sound { display: flex; align-items: center; gap: 8px; }
-.btn.small { min-height: 40px; padding: 6px 10px; font-size: 12px; }
-.vol input { width: 96px; }
-/* off (the default): only the sound controls, on the right, with no box */
-.cc.off { min-height: 0; display: flex; justify-content: flex-end; background: none; border-color: transparent; padding: 0; }
-.cc.off .cctext, .cc.off .meter { display: none; }
+.btn.icon { width: 44px; padding: 0; }
+.btn.icon svg { display: block; }
+.cc.off { display: none; }
 body.in-world .player { padding-bottom: max(18px, env(safe-area-inset-bottom)); }
 @media (max-width: 600px) {
-  .cc { grid-template-columns: auto 1fr; min-height: 104px; padding: 6px 10px; gap: 4px 10px; bottom: calc(max(18px, env(safe-area-inset-bottom)) + 42px); }
+  .cc { grid-template-columns: 1fr; min-height: 104px; padding: 6px 10px; gap: 4px 10px; bottom: calc(max(18px, env(safe-area-inset-bottom)) + 42px); }
   .cctext { grid-column: 1 / -1; grid-row: 1; }
   .cc1 { font-size: 13px; }
   .cc2 { font-size: 14px; }
-  .sound { justify-content: flex-end; }
-  .vol { display: none; }          /* phones have their own volume buttons; Mute stays */
   .cctext { min-width: 0; }
+  .meter { justify-self: start; }
 }
 
 dialog h3 { font: 800 20px/1.2 var(--display); letter-spacing: 0.03em; text-transform: uppercase; color: #fff; margin: 20px 0 8px; }

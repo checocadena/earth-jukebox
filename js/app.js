@@ -14,9 +14,9 @@ const ui = {
   play: $('play'), ring: $('ring'), wav: $('wav'), info: $('info'), about: $('about'), close: $('close'), globe: $('globe'),
   time: $('time'), date: $('date'),
   live: $('live'), status: $('status'), download: $('download'),
-  cc: $('cc'), cc1: $('cc1'), cc2: $('cc2'), cctext: $('cctext'), cctoggle: $('cctoggle'), mute: $('mute'), volume: $('volume'), meter: $('meter'),
+  cc: $('cc'), cc1: $('cc1'), cc2: $('cc2'), cctext: $('cctext'), cctoggle: $('cctoggle'), meter: $('meter'),
 };
-// Remembered per browser: captions on or off, volume, mute. Storage can be blocked, so every use is guarded.
+// Remembered per browser: Accessibility (captions and meter) on or off. Storage can be blocked, so every use is guarded.
 const store = {
   get(k, d) { try { const v = localStorage.getItem('ej.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('ej.' + k, JSON.stringify(v)); } catch {} },
@@ -49,7 +49,7 @@ document.documentElement.style.setProperty('--glow', `rgb(${look.dataGlow})`);
 const FILL = 0.39;
 // Captions and the meter are off until the visitor turns on Accessibility (a new key, so the old default is not carried over).
 let ccOn = store.get('a11y', false) === true;
-const BOTTOM = () => 96 + (ccOn ? (innerWidth <= 600 ? 112 : 92) : 50);
+const BOTTOM = () => 96 + (ccOn ? (innerWidth <= 600 ? 112 : 92) : 0);
 const frameBox = () => { const w = Math.min(innerWidth * 0.62, 300); return { w, h: w / 2 }; };
 const TOP = () => (innerWidth <= 900 ? 112 + frameBox().h + 8 : 104);
 const app = {
@@ -67,7 +67,10 @@ const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let spinOn = !REDUCE, shownLon = null;
 let ds = null, world = null, playing = false, coast = null, scene = null;
 let ctx = null, out = null, fxSends = {}, pre = null, master = null, meters = null, wavUrl = null, lastSaid = 0, lastFrame = 0;
-let muted = store.get('muted', false), volume = Math.max(0, Math.min(100, Number(store.get('volume', 100)) || 0));
+// The page has no volume control: the mix plays at the level set in config.js. M still mutes for this visit only.
+// Earlier versions stored a volume and a mute; clear them so nobody comes back quiet or muted.
+let muted = false;
+try { localStorage.removeItem('ej.volume'); localStorage.removeItem('ej.muted'); localStorage.removeItem('ej.captions'); } catch {}
 
 function say(text) { ui.live.textContent = ''; setTimeout(() => { ui.live.textContent = text; }, 40); lastSaid = performance.now(); caption(text); }
 
@@ -273,7 +276,7 @@ function unlockAudio() {
     if (!ctx) {
       if (navigator.audioSession) { try { navigator.audioSession.type = 'playback'; } catch {} }
       ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-      // worlds -> out -> room -> pre -> master (volume, mute) -> speakers. The meter listens at `pre`,
+      // worlds -> out -> room -> pre -> master (mute) -> speakers. The meter listens at `pre`,
       // so it still moves with the sound when the sound is muted.
       pre = ctx.createGain(); master = ctx.createGain(); master.gain.value = gainFor();
       pre.connect(master).connect(ctx.destination);
@@ -485,7 +488,7 @@ function showInfo() {
     p(d.about); d.sound.forEach(p);
     keys.hidden = false;
     const rows = [['Space', 'Play or pause'], ['← →', 'Turn the globe'], ['Shift ↑ ↓', 'Tilt the globe'], ['↑ ↓', d.speedKeys], [', .', d.timeKeys]];
-    rows.push(['[ ]', 'Previous or next world'], ['S', 'Stop or start the turning'], ['D', 'Say what is playing'], ['M', 'Mute or unmute'], ['C', 'Accessibility: captions and sound meter'],
+    rows.push(['[ ]', 'Previous or next world'], ['S', 'Stop or start the turning'], ['D', 'Say what is playing'], ['C', 'Accessibility: captions and sound meter'],
       ['W', 'Export the audio as a WAV file'], ['I', 'This panel'], ['Esc', 'Close a panel, or back to the menu']);
     for (const [k, v] of rows) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; keys.append(dt, dd); }
     $('credit').textContent = `${d.credit} Source: ${d.sourceTitle}, ${d.sourceUrl}. ${d.note}`;
@@ -571,18 +574,12 @@ function syncNasa(now) {
 }
 
 // ---------- volume, mute, meter ----------
-function gainFor() { return muted ? 0 : Math.pow(volume / 100, 2); }
+function gainFor() { return muted ? 0 : 1; }
 function applyGain() {
   if (master) { const t = ctx.currentTime; master.gain.cancelScheduledValues(t); master.gain.setTargetAtTime(gainFor(), t, 0.04); }
-  ui.mute.setAttribute('aria-pressed', String(muted));
-  ui.mute.textContent = muted ? 'Unmute' : 'Mute';
-  ui.volume.value = String(volume);
-  ui.volume.setAttribute('aria-valuetext', muted ? `${volume} percent, muted` : `${volume} percent`);
   captionHead();
 }
-function setMuted(on) { muted = on; store.set('muted', on); applyGain(); say(on ? 'Sound muted.' : 'Sound on.'); }
-ui.mute.addEventListener('click', () => setMuted(!muted));
-ui.volume.addEventListener('input', () => { volume = Number(ui.volume.value); store.set('volume', volume); if (muted && volume > 0) { muted = false; store.set('muted', false); } applyGain(); });
+function setMuted(on) { muted = on; applyGain(); say(on ? 'Sound muted.' : 'Sound on.'); }
 ui.cctoggle.addEventListener('click', () => { setCaptions(!ccOn); say(ccOn ? 'Accessibility on: captions and sound meter shown.' : 'Accessibility off: captions and sound meter hidden.'); });
 
 // Two bars, left ear over right ear, with a peak mark that falls back slowly.

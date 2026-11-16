@@ -38,6 +38,7 @@
     <nav aria-label="Tools">
       <button id="play" type="button" class="btn" hidden>Play</button>
       <button id="wav" type="button" class="btn" hidden>Export audio</button>
+      <button id="cctoggle" type="button" class="btn icon" aria-pressed="false" aria-label="Accessibility" title="Accessibility"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="6.4" r="1.7" fill="currentColor"/><path d="M6.3 9.2 12 10.4l5.7-1.2M12 10.4V14m0 0-2.8 4.7M12 14l2.8 4.7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button id="info" type="button" class="btn" aria-haspopup="dialog">Info</button>
     </nav>
   </div>
@@ -62,20 +63,15 @@
   <figcaption><a id="framesrc" href="#" target="_blank" rel="noopener"></a></figcaption>
 </figure>
 
-<!-- What the sound is doing, for people who can't hear it: captions, a meter and the sound controls.
+<!-- What the sound is doing, for people who can't hear it: captions and a meter, shown by the Accessibility button.
      Not a live region: #live already speaks the same news to screen readers. -->
-<section id="cc" class="cc off" aria-label="Accessibility and sound" hidden>
+<section id="cc" class="cc off" aria-label="Captions" hidden>
   <div class="meter" aria-hidden="true" title="Sound level. W is the left ear (west), E the right ear (east).">
     <span>W</span><canvas id="meter" width="120" height="24"></canvas><span>E</span>
   </div>
   <div id="cctext" class="cctext">
     <p id="cc1" class="cc1"></p>
     <p id="cc2" class="cc2"></p>
-  </div>
-  <div class="sound">
-    <button id="cctoggle" type="button" class="btn small" aria-pressed="false" title="Captions and sound meter (C)">Accessibility</button>
-    <button id="mute" type="button" class="btn small" aria-pressed="false" title="Mute (M)">Mute</button>
-    <label class="vol"><span class="sr-only">Volume</span><input id="volume" aria-label="Volume" type="range" min="0" max="100" step="5" value="100"></label>
   </div>
 </section>
 
@@ -110,7 +106,7 @@
 
   <h3>If you can’t hear it</h3>
   <p>Captions along the bottom say what the sound of each world stands for and what is happening on the side of the Earth facing you. The meter next to them moves with the sound: the top bar is your left ear (west) and the bottom bar your right ear (east). There is no narration or voice anywhere in Earth Jukebox, so the captions are the whole transcript. Outside the worlds the only sound is a rising whoosh as you fly into the machine, and it gets a caption too.</p>
-  <p>Captions and the meter are off at first. Turn them on with the Accessibility button next to Mute, or press C, and your browser remembers the choice. M mutes, I opens this panel and Escape closes it. A screen reader hears the same news as the captions either way. If your device asks for less motion, the camera doesn’t fly and the globes stay still.</p>
+  <p>Captions and the meter are off at first. Turn them on with the Accessibility button next to Info, or press C, and your browser remembers the choice. I opens this panel and Escape closes it. A screen reader hears the same news as the captions either way. If your device asks for less motion, the camera doesn’t fly and the globes stay still.</p>
 
   <p id="credit" class="fine"></p>
   <p class="fine">Made for the NASA Space Apps Challenge 2026. NASA does not endorse this project.</p>
