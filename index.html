@@ -64,7 +64,7 @@
 
 <!-- What the sound is doing, for people who can't hear it: captions, a meter and the sound controls.
      Not a live region: #live already speaks the same news to screen readers. -->
-<section id="cc" class="cc" aria-label="Captions and sound" hidden>
+<section id="cc" class="cc off" aria-label="Accessibility and sound" hidden>
   <div class="meter" aria-hidden="true" title="Sound level. W is the left ear (west), E the right ear (east).">
     <span>W</span><canvas id="meter" width="120" height="24"></canvas><span>E</span>
   </div>
@@ -73,7 +73,7 @@
     <p id="cc2" class="cc2"></p>
   </div>
   <div class="sound">
-    <button id="cctoggle" type="button" class="btn small" aria-pressed="true" title="Captions (C)">Captions</button>
+    <button id="cctoggle" type="button" class="btn small" aria-pressed="false" title="Captions and sound meter (C)">Accessibility</button>
     <button id="mute" type="button" class="btn small" aria-pressed="false" title="Mute (M)">Mute</button>
     <label class="vol"><span class="sr-only">Volume</span><input id="volume" aria-label="Volume" type="range" min="0" max="100" step="5" value="100"></label>
   </div>
@@ -110,7 +110,7 @@
 
   <h3>If you can’t hear it</h3>
   <p>Captions along the bottom say what the sound of each world stands for and what is happening on the side of the Earth facing you. The meter next to them moves with the sound: the top bar is your left ear (west) and the bottom bar your right ear (east). There is no narration or voice anywhere in Earth Jukebox, so the captions are the whole transcript. Outside the worlds the only sound is a rising whoosh as you fly into the machine, and it gets a caption too.</p>
-  <p>Mute and Volume sit next to the captions. M mutes, C shows or hides the captions, I opens this panel and Escape closes it. If your device asks for less motion, the camera doesn’t fly and the globes stay still.</p>
+  <p>Captions and the meter are off at first. Turn them on with the Accessibility button next to Mute, or press C, and your browser remembers the choice. M mutes, I opens this panel and Escape closes it. A screen reader hears the same news as the captions either way. If your device asks for less motion, the camera doesn’t fly and the globes stay still.</p>
 
   <p id="credit" class="fine"></p>
   <p class="fine">Made for the NASA Space Apps Challenge 2026. NASA does not endorse this project.</p>

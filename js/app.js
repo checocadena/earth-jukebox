@@ -47,7 +47,8 @@ document.documentElement.style.setProperty('--glow', `rgb(${look.dataGlow})`);
 // above the globe, so the globe starts lower.
 // Below the globe: the date slider (96 px), and above it the captions and sound controls.
 const FILL = 0.39;
-let ccOn = store.get('captions', true);
+// Captions and the meter are off until the visitor turns on Accessibility (a new key, so the old default is not carried over).
+let ccOn = store.get('a11y', false) === true;
 const BOTTOM = () => 96 + (ccOn ? (innerWidth <= 600 ? 112 : 92) : 50);
 const frameBox = () => { const w = Math.min(innerWidth * 0.62, 300); return { w, h: w / 2 }; };
 const TOP = () => (innerWidth <= 900 ? 112 + frameBox().h + 8 : 104);
@@ -85,7 +86,7 @@ function captionHead() {
   if (ui.cc1.textContent !== head) ui.cc1.textContent = head;
 }
 function setCaptions(on) {
-  ccOn = on; store.set('captions', on);
+  ccOn = on; store.set('a11y', on);
   ui.cc.classList.toggle('off', !on);
   ui.cctoggle.setAttribute('aria-pressed', String(on));
   layout();
@@ -484,7 +485,7 @@ function showInfo() {
     p(d.about); d.sound.forEach(p);
     keys.hidden = false;
     const rows = [['Space', 'Play or pause'], ['← →', 'Turn the globe'], ['Shift ↑ ↓', 'Tilt the globe'], ['↑ ↓', d.speedKeys], [', .', d.timeKeys]];
-    rows.push(['[ ]', 'Previous or next world'], ['S', 'Stop or start the turning'], ['D', 'Say what is playing'], ['M', 'Mute or unmute'], ['C', 'Show or hide the captions'],
+    rows.push(['[ ]', 'Previous or next world'], ['S', 'Stop or start the turning'], ['D', 'Say what is playing'], ['M', 'Mute or unmute'], ['C', 'Accessibility: captions and sound meter'],
       ['W', 'Export the audio as a WAV file'], ['I', 'This panel'], ['Esc', 'Close a panel, or back to the menu']);
     for (const [k, v] of rows) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; keys.append(dt, dd); }
     $('credit').textContent = `${d.credit} Source: ${d.sourceTitle}, ${d.sourceUrl}. ${d.note}`;
@@ -579,10 +580,10 @@ function applyGain() {
   ui.volume.setAttribute('aria-valuetext', muted ? `${volume} percent, muted` : `${volume} percent`);
   captionHead();
 }
-function setMuted(on) { muted = on; store.set('muted', on); applyGain(); say(on ? 'Sound muted. The captions and the meter carry on.' : 'Sound on.'); }
+function setMuted(on) { muted = on; store.set('muted', on); applyGain(); say(on ? 'Sound muted.' : 'Sound on.'); }
 ui.mute.addEventListener('click', () => setMuted(!muted));
 ui.volume.addEventListener('input', () => { volume = Number(ui.volume.value); store.set('volume', volume); if (muted && volume > 0) { muted = false; store.set('muted', false); } applyGain(); });
-ui.cctoggle.addEventListener('click', () => setCaptions(!ccOn));
+ui.cctoggle.addEventListener('click', () => { setCaptions(!ccOn); say(ccOn ? 'Accessibility on: captions and sound meter shown.' : 'Accessibility off: captions and sound meter hidden.'); });
 
 // Two bars, left ear over right ear, with a peak mark that falls back slowly.
 const mctx = ui.meter.getContext('2d'), mbuf = new Float32Array(1024), mlev = [0, 0], mpeak = [0, 0];
@@ -654,7 +655,7 @@ document.addEventListener('keydown', (e) => {
   if (k === 'i' || k === '?') { e.preventDefault(); showInfo(); return; }
   if (k === 'Escape' && frame.classList.contains('big')) { e.preventDefault(); bigNasa(false); return; }
   if ((k === 'm' || k === 'M')) { e.preventDefault(); setMuted(!muted); return; }
-  if ((k === 'c' || k === 'C')) { e.preventDefault(); setCaptions(!ccOn); say(ccOn ? 'Captions on.' : 'Captions off.'); return; }
+  if ((k === 'c' || k === 'C')) { e.preventDefault(); setCaptions(!ccOn); say(ccOn ? 'Accessibility on: captions and sound meter shown.' : 'Accessibility off: captions and sound meter hidden.'); return; }
   if (k === 'Escape' && !ds && scene.mode === 'menu' && !scene.moving) { e.preventDefault(); scene.go({ mode: 'attract' }, 1.6, attract); return; }   // back to the start
   if (!world || scene.moving) return;
   if (k === 'Escape') { e.preventDefault(); goHome(); return; }
@@ -682,7 +683,7 @@ document.addEventListener('keydown', (e) => {
 const sizeFrame = () => { const b = frameBox(); frame.style.setProperty('--fw', `${b.w}px`); };
 window.addEventListener('resize', () => { layout(); scene?.resize(); sizeFrame(); });
 sizeFrame();
-applyGain(); setCaptions(ccOn); captionHead();
+applyGain(); ui.cc.classList.toggle('off', !ccOn); ui.cctoggle.setAttribute('aria-pressed', String(ccOn)); layout(); captionHead();
 window.addEventListener('hashchange', () => route(false));
 app.scope.resize();
 build().then(() => route(true)).then(() => requestAnimationFrame(tick)).catch((e) => { ui.status.textContent = 'Could not load: ' + e.message; });

@@ -26,7 +26,7 @@ Any static server that supports byte ranges, for example `npx http-server -p 812
 ## Info panel and accessibility (Nov 15)
 - Info now names the challenge (NASA Space Apps Challenge 2026, "The Earth Information Jukebox", https://www.spaceappschallenge.org/2026/challenges/the-earth-information-jukebox/), quotes one line of NASA's brief, sums up what it asks for, says how Earth Jukebox answers it and links the three NASA SVS sources.
 - For deaf and hard-of-hearing visitors: a captions strip above the date slider says what each world's sound stands for and what is playing now (the whoosh into the machine and the fades between worlds get captions too). A two-bar meter beside it follows the left and right channels and keeps moving when the sound is muted. There is no narration or voice, so the captions are the full transcript.
-- Sound controls: Mute (M), Volume slider (hidden on phones), Captions on or off (C). All three are remembered in the browser.
+- Sound controls: Mute (M) and a Volume slider (hidden on phones). Captions and the meter are off by default; the Accessibility button next to Mute (or C) turns them on. All three are remembered in the browser. Screen reader announcements run either way.
 - Keyboard: focus lands on the globe after every flight, Esc closes Info and the large NASA frame, and the Info panel lists the new keys. Unselected tabs are brighter for contrast. With reduced motion on, the NASA frame's fades are off as well.
 - Sound design is unchanged: the master volume sits after the room effects.
 

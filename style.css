@@ -150,8 +150,9 @@ dialog a { color: var(--ink); }
 .sound { display: flex; align-items: center; gap: 8px; }
 .btn.small { min-height: 40px; padding: 6px 10px; font-size: 12px; }
 .vol input { width: 96px; }
-.cc.off { min-height: 0; grid-template-columns: auto 1fr auto; }
-.cc.off .cctext { visibility: hidden; height: 0; overflow: hidden; }
+/* off (the default): only the sound controls, on the right, with no box */
+.cc.off { min-height: 0; display: flex; justify-content: flex-end; background: none; border-color: transparent; padding: 0; }
+.cc.off .cctext, .cc.off .meter { display: none; }
 body.in-world .player { padding-bottom: max(18px, env(safe-area-inset-bottom)); }
 @media (max-width: 600px) {
   .cc { grid-template-columns: auto 1fr; min-height: 104px; padding: 6px 10px; gap: 4px 10px; bottom: calc(max(18px, env(safe-area-inset-bottom)) + 42px); }
